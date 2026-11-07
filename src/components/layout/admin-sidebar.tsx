@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, Waves, Clock } from "lucide-react";
+import { LogOut, Waves, Clock, Search } from "lucide-react";
 import { ADMIN_NAV_ITEMS } from "./admin-nav-items";
 import { SwimTrackLogo } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -46,6 +46,27 @@ export function AdminSidebar() {
           <span>Colombo</span>
         </span>
         <span>{colomboTime || "--:--:--"}</span>
+      </div>
+
+      {/* Quick Search Shortcut Pill */}
+      <div className="px-3 pt-3">
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(
+              new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })
+            );
+          }}
+          className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground bg-secondary/60 hover:bg-secondary border border-border/70 rounded-xl transition-colors text-left"
+        >
+          <span className="flex items-center gap-2">
+            <Search className="w-3.5 h-3.5 text-aqua" />
+            <span>Quick search...</span>
+          </span>
+          <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-background border border-border rounded text-muted-foreground">
+            ⌘K
+          </kbd>
+        </button>
       </div>
 
       {/* Navigation Links */}

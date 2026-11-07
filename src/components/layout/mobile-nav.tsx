@@ -15,6 +15,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  Search,
 } from "lucide-react";
 import { SwimTrackLogo } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -38,6 +39,18 @@ export function MobileHeader() {
         </Link>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })
+              );
+            }}
+            aria-label="Open search command palette"
+            className="p-2 rounded-xl border border-border bg-secondary/60 text-muted-foreground hover:text-foreground"
+          >
+            <Search className="w-4 h-4 text-aqua" />
+          </button>
           <ThemeToggle />
           <button
             type="button"

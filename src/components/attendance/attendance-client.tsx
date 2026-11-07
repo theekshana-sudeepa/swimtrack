@@ -20,6 +20,9 @@ import {
   Keyboard,
   Printer,
   ChevronDown,
+  Share2,
+  Copy,
+  PartyPopper,
 } from "lucide-react";
 import {
   AttendanceRecord,
@@ -74,8 +77,9 @@ export function AttendanceClient({
   } | null>(null);
   const [noteInput, setNoteInput] = React.useState("");
 
-  // Finalize Warning Modal
+  // Finalize Warning & Recap Modals
   const [showFinalizeWarning, setShowFinalizeWarning] = React.useState(false);
+  const [showRecapModal, setShowRecapModal] = React.useState(false);
   const [isFinalizing, setIsFinalizing] = React.useState(false);
 
   // Active keyboard focus row index
@@ -247,11 +251,61 @@ export function AttendanceClient({
       await finalizeSessionAction(session.id);
       toast.success("Attendance finalized for this session.");
       confetti({ particleCount: 70, spread: 80, origin: { y: 0.7 } });
+      setShowRecapModal(true);
       router.refresh();
     } catch {
       toast.error("Failed to finalize session.");
     } finally {
       setIsFinalizing(false);
+    }
+  }
+
+  function handleCopyWhatsAppRecap() {
+    const presentList = attendance.filter((a) => a.status === "present");
+    const lateList = attendance.filter((a) => a.status === "late");
+    const absentList = attendance.filter((a) => a.status === "absent");
+    const excusedList = attendance.filter((a) => a.status === "excused");
+
+    const lines = [
+      `🏊‍♂️ *SwimTrack Squad Recap — ${session.title}*`,
+      `📅 ${session.date} • ${formatTime(session.start_time)} – ${formatTime(session.end_time)}`,
+      `📍 ${session.location}`,
+      ``,
+      `⚡ *Attendance Rate: ${attendanceRate}%*`,
+      `📊 ${presentCount} Present • ${lateCount} Late • ${absentCount} Absent • ${excusedCount} Excused`,
+      ``,
+    ];
+
+    if (presentList.length > 0) {
+      lines.push(`✅ *Chlorine Warriors (On-Time):*`);
+      presentList.forEach((r) => lines.push(`• ${r.swimmer?.full_name || "Swimmer"}`));
+      lines.push(``);
+    }
+
+    if (lateList.length > 0) {
+      lines.push(`⏰ *Late Arrival Squad:*`);
+      lateList.forEach((r) => lines.push(`• ${r.swimmer?.full_name || "Swimmer"}`));
+      lines.push(``);
+    }
+
+    if (absentList.length > 0) {
+      lines.push(`🌴 *Polla of the Day (MIA / Absent):*`);
+      absentList.forEach((r) => lines.push(`• ${r.swimmer?.full_name || "Swimmer"}`));
+      lines.push(``);
+    }
+
+    if (excusedList.length > 0) {
+      lines.push(`🩹 *Excused:*`);
+      excusedList.forEach((r) => lines.push(`• ${r.swimmer?.full_name || "Swimmer"}`));
+      lines.push(``);
+    }
+
+    lines.push(`_Recorded with SwimTrack Aquatic Control Room_ 🌊`);
+
+    const text = lines.join("\n");
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      toast.success("Squad WhatsApp recap copied to clipboard!");
     }
   }
 
@@ -375,6 +429,16 @@ export function AttendanceClient({
 
           {/* Quick Session State Controls */}
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowRecapModal(true)}
+              aria-label="View session recap and share options"
+              className="p-2 rounded-xl border border-border bg-secondary/60 hover:bg-secondary text-foreground text-xs font-semibold flex items-center gap-1.5 transition-all"
+            >
+              <Share2 className="w-4 h-4 text-aqua" />
+              <span className="hidden sm:inline">Squad Recap</span>
+            </button>
+
             <button
               type="button"
               onClick={() => window.print()}
@@ -769,6 +833,85 @@ export function AttendanceClient({
                 className="w-full sm:w-auto px-4 py-2 rounded-xl bg-aqua text-ocean-950 text-xs font-bold"
               >
                 Finalize Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session Recap Modal */}
+      {showRecapModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <PartyPopper className="w-5 h-5 text-aqua" />
+                <h3 className="text-base font-bold text-foreground">
+                  Session Recap: {session.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRecapModal(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+              <div className="p-3 rounded-xl bg-seafoam/10 border border-seafoam/20">
+                <p className="text-xl font-black text-seafoam">{presentCount}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Present</p>
+              </div>
+              <div className="p-3 rounded-xl bg-amber-400/10 border border-amber-400/20">
+                <p className="text-xl font-black text-amber-400">{lateCount}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Late</p>
+              </div>
+              <div className="p-3 rounded-xl bg-coral/10 border border-coral/20">
+                <p className="text-xl font-black text-coral">{absentCount}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Absent</p>
+              </div>
+              <div className="p-3 rounded-xl bg-aqua/10 border border-aqua/20">
+                <p className="text-xl font-black text-aqua">{attendanceRate}%</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Turnout</p>
+              </div>
+            </div>
+
+            {absentCount > 0 && (
+              <div className="p-3 rounded-xl border border-coral/30 bg-coral/5 space-y-1">
+                <p className="text-xs font-bold text-coral flex items-center gap-1.5">
+                  <span>🌴</span> Polla of the Day ({absentCount} absent)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {attendance
+                    .filter((a) => a.status === "absent")
+                    .map((a) => a.swimmer?.full_name)
+                    .filter(Boolean)
+                    .join(", ")}
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRecapModal(false);
+                  window.print();
+                }}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-secondary flex items-center justify-center gap-1.5"
+              >
+                <Printer className="w-3.5 h-3.5 text-muted-foreground" />
+                <span>Print Register</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyWhatsAppRecap}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-seafoam text-ocean-950 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-seafoam/90 transition-all shadow-sm"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy WhatsApp Recap</span>
               </button>
             </div>
           </div>

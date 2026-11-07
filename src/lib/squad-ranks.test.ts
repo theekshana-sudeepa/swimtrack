@@ -52,3 +52,4 @@ describe("Squad Rank & Polla Meter Logic", () => {
     expect(rank.pollaLevel).toBe("medium");
   });
 });
+

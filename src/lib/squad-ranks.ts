@@ -187,3 +187,4 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     },
   };
 }
+
