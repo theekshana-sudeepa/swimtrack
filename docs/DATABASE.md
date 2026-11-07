@@ -84,3 +84,4 @@ supabase db reset
 ```
 
 Or copy the SQL statements from `supabase/migrations/20260101000000_swimtrack_schema.sql` into the Supabase Dashboard SQL Editor.
+

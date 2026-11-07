@@ -172,3 +172,4 @@ export function CommandPalette({ swimmers = [], sessions = [] }: CommandPaletteP
     </div>
   );
 }
+

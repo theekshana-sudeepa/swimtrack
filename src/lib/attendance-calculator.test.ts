@@ -66,3 +66,4 @@ describe("Attendance Calculator", () => {
     expect(streaks.currentStreak).toBe(2);
   });
 });
+

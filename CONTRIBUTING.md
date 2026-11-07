@@ -47,3 +47,4 @@ npm run build
 2. **No Commercial Features**: Do not submit pull requests introducing monetization, checkout pages, or third-party ads.
 3. **Privacy First**: Never commit real personal emails or phone numbers to test suites or seeds. Fictional demonstration data only.
 4. **Code Quality**: Write typed, clean TypeScript with strict null checks.
+

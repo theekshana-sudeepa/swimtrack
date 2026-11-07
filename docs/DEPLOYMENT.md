@@ -35,3 +35,4 @@ SwimTrack is designed to deploy seamlessly to Vercel Hobby with zero backend ser
 
 ## Step 4: Verify Cron Setup
 Vercel will automatically read `vercel.json` and schedule the daily reminder runner at 02:30 UTC (~8:00 AM Asia/Colombo) with automatic `CRON_SECRET` injection.
+

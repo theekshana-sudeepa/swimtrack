@@ -266,3 +266,4 @@ export function SettingsClient() {
     </div>
   );
 }
+

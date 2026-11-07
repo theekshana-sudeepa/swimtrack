@@ -162,3 +162,4 @@ const footerTextStyle: React.CSSProperties = {
   color: "#4496cc",
   margin: 0,
 };
+

@@ -20,3 +20,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vercel Cron handler for daily morning reminders (~8:00 AM Asia/Colombo).
 - Full Vitest unit test suite and Playwright browser E2E test suite.
 - Comprehensive technical documentation and real application screenshots.
+

@@ -584,3 +584,4 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
     </div>
   );
 }
+

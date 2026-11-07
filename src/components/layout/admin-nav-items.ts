@@ -68,3 +68,4 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
     description: "Club & system configuration",
   },
 ];
+

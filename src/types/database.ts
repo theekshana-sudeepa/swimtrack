@@ -152,3 +152,4 @@ export interface AttendanceCalculationResult {
   notMarked: number;
   attendanceRate: number; // (present + late) / (present + late + absent) * 100
 }
+

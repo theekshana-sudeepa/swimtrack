@@ -71,3 +71,4 @@ test.describe("SwimTrack E2E Test Suite", () => {
     await expect(page.locator("text=Attendance Rate Over Time")).toBeVisible();
   });
 });
+

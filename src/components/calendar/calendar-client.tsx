@@ -164,3 +164,4 @@ export function CalendarClient({ initialSessions }: { initialSessions: SwimSessi
     </div>
   );
 }
+

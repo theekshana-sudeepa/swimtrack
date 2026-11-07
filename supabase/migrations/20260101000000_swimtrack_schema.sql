@@ -258,3 +258,4 @@ CREATE TRIGGER trg_attendance_updated_at
 CREATE TRIGGER trg_app_settings_updated_at
     BEFORE UPDATE ON public.app_settings
     FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+

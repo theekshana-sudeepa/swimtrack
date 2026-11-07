@@ -9,3 +9,4 @@ export default function SessionsPage() {
 
   return <SessionListClient initialSessions={sessions} />;
 }
+

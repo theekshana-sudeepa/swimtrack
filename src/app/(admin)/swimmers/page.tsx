@@ -9,3 +9,4 @@ export default function SwimmersPage() {
 
   return <SwimmerListClient initialSwimmers={swimmers} />;
 }
+

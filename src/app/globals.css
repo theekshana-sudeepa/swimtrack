@@ -136,3 +136,30 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(34, 199, 216, 0.4);
 }
+
+/* Printable attendance sheet styles */
+@media print {
+  aside,
+  header,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .border {
+    border-color: #cbd5e1 !important;
+  }
+}
+

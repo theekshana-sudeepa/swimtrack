@@ -51,3 +51,4 @@ The Attendance Command Center uses client-side optimistic state updates for inst
 ### 4. Recipient Consent & Idempotency
 - Swimmers who have not explicitly enabled email reminders or who have opted out via their personal token are never contacted.
 - Every email transmission derives an atomic claim key (`${sessionId}:${swimmerId}:${reminderType}:${date}`) passed to the `reminder_deliveries` table and Resend headers to prevent duplicate emails under concurrent cron triggers.
+

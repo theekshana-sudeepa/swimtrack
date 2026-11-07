@@ -9,3 +9,4 @@ export default function CalendarPage() {
 
   return <CalendarClient initialSessions={sessions} />;
 }
+

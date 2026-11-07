@@ -35,3 +35,4 @@ Under SwimTrack's consent rules:
 - Only swimmers with `email_reminders_enabled: true` are queried.
 - Every email includes a personalized unsubscribe link (`/reminders/opt-out?token=...`) enabling one-click self-service opt-out without requiring an account.
 - Archived swimmers are automatically excluded.
+

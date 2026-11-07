@@ -20,3 +20,4 @@ SwimTrack employs a strict **Single-Administrator Architecture**:
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability within SwimTrack, please report it privately by opening a confidential security advisory on GitHub or emailing the repository maintainer directly.
+

@@ -36,3 +36,4 @@ Navigate to `/sessions`:
 - Click **New Session** for one-off practices.
 - Click **Recurring Series** to generate weekly practices automatically.
 - Click **.ICS** on any session card to add the event to Apple Calendar or Google Calendar.
+
