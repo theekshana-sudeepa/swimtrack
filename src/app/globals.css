@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 195 40% 98%; /* #F2FAFC */
+    --foreground: 206 72% 10%; /* #071B2B */
+
+    --card: 0 0% 100%;
+    --card-foreground: 206 72% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 206 72% 10%;
+
+    --primary: 186 73% 49%; /* #22C7D8 - Aqua */
+    --primary-foreground: 206 72% 10%;
+
+    --secondary: 195 35% 92%;
+    --secondary-foreground: 206 72% 15%;
+
+    --muted: 195 25% 93%;
+    --muted-foreground: 206 20% 40%;
+
+    --accent: 168 73% 63%; /* #5BE6CD - Seafoam */
+    --accent-foreground: 206 72% 10%;
+
+    --destructive: 8 100% 75%; /* #FF907E - Coral */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 195 30% 88%;
+    --input: 195 30% 88%;
+    --ring: 186 73% 49%;
+
+    --radius: 0.75rem;
+
+    --lane-line: rgba(34, 199, 216, 0.08);
+
+    /* Status indicator tokens */
+    --status-present: 168 73% 40%;
+    --status-late: 38 92% 50%;
+    --status-absent: 8 90% 58%;
+    --status-excused: 217 91% 60%;
+    --status-unmarked: 215 16% 47%;
+  }
+
+  .dark {
+    --background: 206 72% 10%; /* #071B2B - Deep Ocean */
+    --foreground: 195 40% 98%; /* #F2FAFC */
+
+    --card: 204 57% 15%; /* #102A3B - Navy */
+    --card-foreground: 195 40% 98%;
+
+    --popover: 204 57% 15%;
+    --popover-foreground: 195 40% 98%;
+
+    --primary: 186 73% 49%; /* #22C7D8 - Aqua */
+    --primary-foreground: 206 72% 10%;
+
+    --secondary: 205 45% 20%;
+    --secondary-foreground: 195 40% 95%;
+
+    --muted: 205 45% 18%;
+    --muted-foreground: 195 20% 65%;
+
+    --accent: 168 73% 63%; /* #5BE6CD - Seafoam */
+    --accent-foreground: 206 72% 10%;
+
+    --destructive: 8 100% 75%; /* #FF907E - Coral */
+    --destructive-foreground: 206 72% 10%;
+
+    --border: 205 40% 22%;
+    --input: 205 40% 22%;
+    --ring: 186 73% 49%;
+
+    --lane-line: rgba(34, 199, 216, 0.05);
+
+    /* Dark status indicator tokens */
+    --status-present: 168 73% 63%;
+    --status-late: 38 92% 60%;
+    --status-absent: 8 100% 75%;
+    --status-excused: 217 91% 70%;
+    --status-unmarked: 215 16% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-aqua/20 selection:text-aqua;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    min-height: 100vh;
+  }
+}
+
+/* Subtle pool water and control room accents */
+.bg-control-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, var(--lane-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--lane-line) 1px, transparent 1px);
+}
+
+.glow-aqua {
+  box-shadow: 0 0 24px -4px rgba(34, 199, 216, 0.25);
+}
+
+.glow-seafoam {
+  box-shadow: 0 0 24px -4px rgba(91, 230, 205, 0.25);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(34, 199, 216, 0.2);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 199, 216, 0.4);
+}

@@ -1,0 +1,673 @@
+import {
+  Swimmer,
+  SwimSession,
+  AttendanceRecord,
+  SessionSeries,
+  AttendanceStatus,
+  SessionStatus,
+  AttendanceAuditLog,
+  ReminderDelivery,
+  AppSetting,
+} from "@/types/database";
+import {
+  INITIAL_SWIMMERS,
+  INITIAL_SESSIONS,
+  INITIAL_ATTENDANCE,
+  INITIAL_SERIES,
+  INITIAL_AUDIT_LOGS,
+  INITIAL_REMINDER_DELIVERIES,
+} from "./demo-data";
+import { calculateAttendanceRate, calculateStreaks } from "./attendance-calculator";
+
+// In-memory persistent state (persists across requests during server runtime)
+interface StoreState {
+  swimmers: Swimmer[];
+  sessions: SwimSession[];
+  series: SessionSeries[];
+  attendance: AttendanceRecord[];
+  auditLogs: AttendanceAuditLog[];
+  reminders: ReminderDelivery[];
+  settings: Record<string, AppSetting>;
+}
+
+// Global singleton in Node global scope to prevent reset during dev HMR
+const globalForStore = globalThis as unknown as {
+  __swimtrack_store?: StoreState;
+};
+
+function getInitialStore(): StoreState {
+  return {
+    swimmers: JSON.parse(JSON.stringify(INITIAL_SWIMMERS)),
+    sessions: JSON.parse(JSON.stringify(INITIAL_SESSIONS)),
+    series: JSON.parse(JSON.stringify(INITIAL_SERIES)),
+    attendance: JSON.parse(JSON.stringify(INITIAL_ATTENDANCE)),
+    auditLogs: JSON.parse(JSON.stringify(INITIAL_AUDIT_LOGS)),
+    reminders: JSON.parse(JSON.stringify(INITIAL_REMINDER_DELIVERIES)),
+    settings: {
+      general: {
+        key: "general",
+        value: {
+          group_name: "SwimTrack Club",
+          default_pool: "Royal College Aquatic Complex, Colombo",
+          default_duration_minutes: 60,
+          timezone: "Asia/Colombo",
+        },
+      },
+      reminders: {
+        key: "reminders",
+        value: {
+          auto_reminders_enabled: true,
+          reminder_hours_before: 24,
+          default_message:
+            "Friendly reminder for our upcoming swimming session. Don't forget your goggles, cap, and hydration!",
+        },
+      },
+    },
+  };
+}
+
+const store: StoreState = globalForStore.__swimtrack_store || getInitialStore();
+if (process.env.NODE_ENV !== "production") {
+  globalForStore.__swimtrack_store = store;
+}
+
+export const DataStore = {
+  resetToDemo(): void {
+    const fresh = getInitialStore();
+    store.swimmers = fresh.swimmers;
+    store.sessions = fresh.sessions;
+    store.series = fresh.series;
+    store.attendance = fresh.attendance;
+    store.auditLogs = fresh.auditLogs;
+    store.reminders = fresh.reminders;
+    store.settings = fresh.settings;
+  },
+
+  // ---------------------------------------------------------------------------
+  // Swimmers
+  // ---------------------------------------------------------------------------
+  getSwimmers(options?: { status?: "active" | "archived" | "all"; search?: string }): Swimmer[] {
+    let result = [...store.swimmers];
+    if (options?.status && options.status !== "all") {
+      result = result.filter((s) => s.status === options.status);
+    }
+    if (options?.search) {
+      const q = options.search.toLowerCase().trim();
+      result = result.filter(
+        (s) =>
+          s.full_name.toLowerCase().includes(q) ||
+          (s.nickname && s.nickname.toLowerCase().includes(q)) ||
+          (s.email && s.email.toLowerCase().includes(q))
+      );
+    }
+
+    // Attach computed stats
+    return result.map((swimmer) => {
+      const swimmerRecords = store.attendance.filter(
+        (a) => a.swimmer_id === swimmer.id
+      );
+      const calc = calculateAttendanceRate(swimmerRecords);
+
+      // Streak calculation
+      const datesWithStatus = swimmerRecords.map((r) => {
+        const sess = store.sessions.find((s) => s.id === r.session_id);
+        return {
+          date: sess ? sess.date : "2026-01-01",
+          status: r.status,
+        };
+      });
+      const streaks = calculateStreaks(datesWithStatus);
+
+      return {
+        ...swimmer,
+        attendance_stats: {
+          total: calc.totalOpportunities,
+          present: calc.present,
+          late: calc.late,
+          absent: calc.absent,
+          excused: calc.excused,
+          rate: calc.attendanceRate,
+          currentStreak: streaks.currentStreak,
+          longestStreak: streaks.longestStreak,
+        },
+      };
+    });
+  },
+
+  getSwimmerById(id: string): Swimmer | null {
+    const list = this.getSwimmers({ status: "all" });
+    return list.find((s) => s.id === id) || null;
+  },
+
+  createSwimmer(data: {
+    full_name: string;
+    nickname?: string;
+    email?: string;
+    phone?: string;
+    notes?: string;
+    avatar_color?: string;
+    email_reminders_enabled?: boolean;
+  }): Swimmer {
+    const newId = `swimmer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const newSwimmer: Swimmer = {
+      id: newId,
+      full_name: data.full_name,
+      nickname: data.nickname || null,
+      email: data.email || null,
+      phone: data.phone || null,
+      join_date: new Date().toISOString().split("T")[0],
+      status: "active",
+      notes: data.notes || null,
+      avatar_color: data.avatar_color || "ocean",
+      reminder_preferences: {
+        id: `pref-${newId}`,
+        swimmer_id: newId,
+        email_reminders_enabled: data.email_reminders_enabled ?? (data.email ? true : false),
+        opt_out_token: `token_${newId}`,
+      },
+    };
+
+    store.swimmers.push(newSwimmer);
+
+    // Auto enroll in active upcoming sessions
+    const upcoming = store.sessions.filter((s) => s.status === "scheduled");
+    for (const sess of upcoming) {
+      store.attendance.push({
+        id: `att-${sess.id}-${newId}`,
+        session_id: sess.id,
+        swimmer_id: newId,
+        status: "not_marked",
+      });
+    }
+
+    return newSwimmer;
+  },
+
+  updateSwimmer(
+    id: string,
+    data: Partial<Swimmer> & { email_reminders_enabled?: boolean }
+  ): Swimmer | null {
+    const index = store.swimmers.findIndex((s) => s.id === id);
+    if (index === -1) return null;
+
+    const current = store.swimmers[index];
+    const updated: Swimmer = {
+      ...current,
+      ...data,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (data.email_reminders_enabled !== undefined && updated.reminder_preferences) {
+      updated.reminder_preferences.email_reminders_enabled = data.email_reminders_enabled;
+    }
+
+    store.swimmers[index] = updated;
+    return this.getSwimmerById(id);
+  },
+
+  archiveSwimmer(id: string): boolean {
+    const swimmer = store.swimmers.find((s) => s.id === id);
+    if (!swimmer) return false;
+    swimmer.status = "archived";
+    swimmer.updated_at = new Date().toISOString();
+    return true;
+  },
+
+  restoreSwimmer(id: string): boolean {
+    const swimmer = store.swimmers.find((s) => s.id === id);
+    if (!swimmer) return false;
+    swimmer.status = "active";
+    swimmer.updated_at = new Date().toISOString();
+    return true;
+  },
+
+  // ---------------------------------------------------------------------------
+  // Sessions & Series
+  // ---------------------------------------------------------------------------
+  getSessions(options?: {
+    status?: SessionStatus | "all";
+    fromDate?: string;
+    toDate?: string;
+  }): SwimSession[] {
+    let result = [...store.sessions];
+    if (options?.status && options.status !== "all") {
+      result = result.filter((s) => s.status === options.status);
+    }
+    if (options?.fromDate) {
+      result = result.filter((s) => s.date >= options.fromDate!);
+    }
+    if (options?.toDate) {
+      result = result.filter((s) => s.date <= options.toDate!);
+    }
+
+    // Sort by date descending, then time
+    result.sort((a, b) => {
+      const cmp = b.date.localeCompare(a.date);
+      return cmp !== 0 ? cmp : b.start_time.localeCompare(a.start_time);
+    });
+
+    // Populate participant counts and attendance breakdown
+    return result.map((sess) => {
+      const records = store.attendance.filter((a) => a.session_id === sess.id);
+      let present = 0,
+        late = 0,
+        absent = 0,
+        excused = 0,
+        not_marked = 0;
+
+      for (const r of records) {
+        if (r.status === "present") present++;
+        else if (r.status === "late") late++;
+        else if (r.status === "absent") absent++;
+        else if (r.status === "excused") excused++;
+        else not_marked++;
+      }
+
+      return {
+        ...sess,
+        participant_count: records.length,
+        attendance_summary: {
+          present,
+          late,
+          absent,
+          excused,
+          not_marked,
+          total: records.length,
+        },
+      };
+    });
+  },
+
+  getSessionById(id: string): SwimSession | null {
+    const list = this.getSessions({ status: "all" });
+    return list.find((s) => s.id === id) || null;
+  },
+
+  getNextUpcomingSession(): SwimSession | null {
+    const nowStr = new Date().toISOString().split("T")[0];
+    const upcoming = store.sessions
+      .filter((s) => s.status === "scheduled" && s.date >= nowStr)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.start_time.localeCompare(b.start_time));
+
+    if (upcoming.length > 0) {
+      return this.getSessionById(upcoming[0].id);
+    }
+    // Fallback to most recent scheduled
+    const anyScheduled = store.sessions
+      .filter((s) => s.status === "scheduled")
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return anyScheduled.length > 0 ? this.getSessionById(anyScheduled[0].id) : null;
+  },
+
+  createSession(data: {
+    title: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    location: string;
+    notes?: string;
+    series_id?: string | null;
+  }): SwimSession {
+    const newId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const newSession: SwimSession = {
+      id: newId,
+      series_id: data.series_id || null,
+      title: data.title,
+      date: data.date,
+      start_time: data.start_time,
+      end_time: data.end_time,
+      location: data.location,
+      notes: data.notes || null,
+      status: "scheduled",
+      is_finalized: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    store.sessions.push(newSession);
+
+    // Snapshot active swimmers into attendance register
+    const activeSwimmers = store.swimmers.filter((s) => s.status === "active");
+    for (const swimmer of activeSwimmers) {
+      store.attendance.push({
+        id: `att-${newId}-${swimmer.id}`,
+        session_id: newId,
+        swimmer_id: swimmer.id,
+        status: "not_marked",
+      });
+    }
+
+    return this.getSessionById(newId)!;
+  },
+
+  updateSession(id: string, data: Partial<SwimSession>): SwimSession | null {
+    const idx = store.sessions.findIndex((s) => s.id === id);
+    if (idx === -1) return null;
+
+    store.sessions[idx] = {
+      ...store.sessions[idx],
+      ...data,
+      updated_at: new Date().toISOString(),
+    };
+    return this.getSessionById(id);
+  },
+
+  cancelSession(id: string): SwimSession | null {
+    return this.updateSession(id, { status: "cancelled" });
+  },
+
+  finalizeSession(id: string, adminId?: string): SwimSession | null {
+    const now = new Date().toISOString();
+    return this.updateSession(id, {
+      is_finalized: true,
+      status: "completed",
+      finalized_at: now,
+      finalized_by: adminId || "admin",
+    });
+  },
+
+  reopenSession(id: string): SwimSession | null {
+    return this.updateSession(id, {
+      is_finalized: false,
+      status: "scheduled",
+      finalized_at: null,
+      finalized_by: null,
+    });
+  },
+
+  getSeries(): SessionSeries[] {
+    return [...store.series];
+  },
+
+  createSeries(data: {
+    title: string;
+    location: string;
+    recurrence_rule: "weekly" | "biweekly";
+    day_of_week: number;
+    start_time: string;
+    end_time: string;
+    start_date: string;
+    occurrences_to_generate?: number;
+  }): { series: SessionSeries; createdSessionsCount: number } {
+    const seriesId = `series-${Date.now()}`;
+    const newSeries: SessionSeries = {
+      id: seriesId,
+      title: data.title,
+      location: data.location,
+      recurrence_rule: data.recurrence_rule,
+      day_of_week: data.day_of_week,
+      start_time: data.start_time,
+      end_time: data.end_time,
+      start_date: data.start_date,
+      active: true,
+    };
+    store.series.push(newSeries);
+
+    // Generate upcoming concrete session occurrences
+    const count = data.occurrences_to_generate || 4;
+    let generated = 0;
+    const baseDate = new Date(data.start_date);
+
+    for (let i = 0; i < 52 && generated < count; i++) {
+      const candidate = new Date(baseDate);
+      candidate.setDate(baseDate.getDate() + i);
+
+      if (candidate.getDay() === data.day_of_week) {
+        const dateStr = candidate.toISOString().split("T")[0];
+        // Prevent duplicate on same date & series
+        const exists = store.sessions.some(
+          (s) => s.series_id === seriesId && s.date === dateStr
+        );
+        if (!exists) {
+          this.createSession({
+            series_id: seriesId,
+            title: data.title,
+            date: dateStr,
+            start_time: data.start_time,
+            end_time: data.end_time,
+            location: data.location,
+          });
+          generated++;
+        }
+      }
+    }
+
+    return { series: newSeries, createdSessionsCount: generated };
+  },
+
+  // ---------------------------------------------------------------------------
+  // Attendance Command Center Operations
+  // ---------------------------------------------------------------------------
+  getSessionAttendance(sessionId: string): AttendanceRecord[] {
+    const records = store.attendance.filter((a) => a.session_id === sessionId);
+    return records.map((record) => {
+      const swimmer = store.swimmers.find((s) => s.id === record.swimmer_id);
+      return {
+        ...record,
+        swimmer: swimmer ? { ...swimmer } : undefined,
+      };
+    });
+  },
+
+  updateAttendanceStatus(
+    sessionId: string,
+    swimmerId: string,
+    status: AttendanceStatus,
+    notes?: string,
+    adminId?: string
+  ): { record: AttendanceRecord; auditLog: AttendanceAuditLog } {
+    let index = store.attendance.findIndex(
+      (a) => a.session_id === sessionId && a.swimmer_id === swimmerId
+    );
+
+    const now = new Date().toISOString();
+    let oldStatus: AttendanceStatus = "not_marked";
+
+    if (index === -1) {
+      // Create record if missing
+      const newRecord: AttendanceRecord = {
+        id: `att-${sessionId}-${swimmerId}`,
+        session_id: sessionId,
+        swimmer_id: swimmerId,
+        status,
+        notes: notes || null,
+        marked_at: now,
+        marked_by: adminId || "admin",
+        updated_at: now,
+      };
+      store.attendance.push(newRecord);
+      index = store.attendance.length - 1;
+    } else {
+      oldStatus = store.attendance[index].status;
+      store.attendance[index] = {
+        ...store.attendance[index],
+        status,
+        notes: notes !== undefined ? notes : store.attendance[index].notes,
+        updated_at: now,
+        marked_by: adminId || "admin",
+      };
+    }
+
+    const updatedRecord = store.attendance[index];
+    const swimmer = store.swimmers.find((s) => s.id === swimmerId);
+    const session = store.sessions.find((s) => s.id === sessionId);
+
+    // Create Audit Log
+    const auditLog: AttendanceAuditLog = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      session_id: sessionId,
+      swimmer_id: swimmerId,
+      old_status: oldStatus,
+      new_status: status,
+      change_reason: notes || "Direct status update",
+      actor_id: adminId || "admin",
+      created_at: now,
+      swimmer_name: swimmer ? swimmer.full_name : "Unknown Swimmer",
+      session_title: session ? session.title : "Unknown Session",
+    };
+    store.auditLogs.unshift(auditLog);
+
+    return {
+      record: {
+        ...updatedRecord,
+        swimmer: swimmer ? { ...swimmer } : undefined,
+      },
+      auditLog,
+    };
+  },
+
+  markAllPresent(sessionId: string, adminId?: string): number {
+    const list = store.attendance.filter((a) => a.session_id === sessionId);
+    let updatedCount = 0;
+    for (const item of list) {
+      if (item.status !== "present") {
+        this.updateAttendanceStatus(sessionId, item.swimmer_id, "present", "Bulk marked present", adminId);
+        updatedCount++;
+      }
+    }
+    return updatedCount;
+  },
+
+  markRemainingAbsent(sessionId: string, adminId?: string): number {
+    const list = store.attendance.filter((a) => a.session_id === sessionId);
+    let updatedCount = 0;
+    for (const item of list) {
+      if (item.status === "not_marked") {
+        this.updateAttendanceStatus(sessionId, item.swimmer_id, "absent", "Marked remaining absent", adminId);
+        updatedCount++;
+      }
+    }
+    return updatedCount;
+  },
+
+  getAttendanceAuditLogs(options?: {
+    sessionId?: string;
+    swimmerId?: string;
+    limit?: number;
+  }): AttendanceAuditLog[] {
+    let result = [...store.auditLogs];
+    if (options?.sessionId) {
+      result = result.filter((l) => l.session_id === options.sessionId);
+    }
+    if (options?.swimmerId) {
+      result = result.filter((l) => l.swimmer_id === options.swimmerId);
+    }
+    const limit = options?.limit || 50;
+    return result.slice(0, limit);
+  },
+
+  // ---------------------------------------------------------------------------
+  // Reminders & Deliveries
+  // ---------------------------------------------------------------------------
+  getEligibleReminderRecipients(sessionId: string): Swimmer[] {
+    const records = store.attendance.filter((a) => a.session_id === sessionId);
+    const swimmerIds = new Set(records.map((r) => r.swimmer_id));
+
+    return store.swimmers.filter((swimmer) => {
+      // Must be participant in this session (if records exist)
+      if (swimmerIds.size > 0 && !swimmerIds.has(swimmer.id)) return false;
+      // Must be active
+      if (swimmer.status !== "active") return false;
+      // Must have valid email
+      if (!swimmer.email || !swimmer.email.includes("@")) return false;
+      // Must have email reminders enabled (consent)
+      if (swimmer.reminder_preferences && !swimmer.reminder_preferences.email_reminders_enabled) {
+        return false;
+      }
+      return true;
+    });
+  },
+
+  hasReminderBeenSent(claimKey: string): boolean {
+    return store.reminders.some(
+      (r) => r.claim_key === claimKey && (r.status === "sent" || r.status === "pending")
+    );
+  },
+
+  recordReminderDelivery(delivery: {
+    claim_key: string;
+    session_id: string;
+    swimmer_id: string;
+    reminder_type: "upcoming" | "today" | "changed" | "cancelled" | "manual";
+    recipient_email: string;
+    status: "pending" | "sent" | "failed" | "skipped";
+    provider_message_id?: string | null;
+    error_message?: string | null;
+  }): ReminderDelivery {
+    const swimmer = store.swimmers.find((s) => s.id === delivery.swimmer_id);
+    const session = store.sessions.find((s) => s.id === delivery.session_id);
+
+    const record: ReminderDelivery = {
+      id: `rem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      claim_key: delivery.claim_key,
+      session_id: delivery.session_id,
+      swimmer_id: delivery.swimmer_id,
+      reminder_type: delivery.reminder_type,
+      recipient_email: delivery.recipient_email,
+      status: delivery.status,
+      provider_message_id: delivery.provider_message_id || null,
+      error_message: delivery.error_message || null,
+      attempt_count: 1,
+      sent_at: delivery.status === "sent" ? new Date().toISOString() : null,
+      created_at: new Date().toISOString(),
+      swimmer_name: swimmer ? swimmer.full_name : "Swimmer",
+      session_title: session ? session.title : "Swimming Session",
+    };
+
+    store.reminders.unshift(record);
+    return record;
+  },
+
+  getReminderDeliveries(limit = 50): ReminderDelivery[] {
+    return store.reminders.slice(0, limit);
+  },
+
+  // ---------------------------------------------------------------------------
+  // Analytics & Aggregates
+  // ---------------------------------------------------------------------------
+  getDashboardStats() {
+    const activeSwimmers = store.swimmers.filter((s) => s.status === "active").length;
+    const completedSessions = store.sessions.filter((s) => s.status === "completed").length;
+    const scheduledSessions = store.sessions.filter((s) => s.status === "scheduled").length;
+
+    // Attendance rate for all completed sessions
+    const completedSessionIds = new Set(
+      store.sessions.filter((s) => s.status === "completed").map((s) => s.id)
+    );
+    const relevantRecords = store.attendance.filter((a) =>
+      completedSessionIds.has(a.session_id)
+    );
+    const overallRate = calculateAttendanceRate(relevantRecords);
+
+    // Sessions this month
+    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+    const sessionsThisMonth = store.sessions.filter((s) =>
+      s.date.startsWith(currentMonth)
+    ).length;
+
+    return {
+      activeSwimmers,
+      completedSessions,
+      scheduledSessions,
+      overallAttendanceRate: overallRate.attendanceRate,
+      sessionsThisMonth,
+      totalRecords: relevantRecords.length,
+    };
+  },
+
+  // ---------------------------------------------------------------------------
+  // Settings
+  // ---------------------------------------------------------------------------
+  getAppSettings(): Record<string, AppSetting> {
+    return { ...store.settings };
+  },
+
+  updateAppSetting(key: string, value: Record<string, unknown>): AppSetting {
+    store.settings[key] = {
+      key,
+      value: { ...store.settings[key]?.value, ...value },
+      updated_at: new Date().toISOString(),
+    };
+    return store.settings[key];
+  },
+};
