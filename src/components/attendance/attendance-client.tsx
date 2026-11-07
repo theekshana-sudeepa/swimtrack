@@ -27,6 +27,7 @@ import {
   SwimSession,
   AttendanceAuditLog,
 } from "@/types/database";
+import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import {
   updateAttendanceStatusAction,
   markAllPresentAction,
@@ -531,6 +532,7 @@ export function AttendanceClient({
             const swimmer = record.swimmer;
             const isPending = pendingIds.has(record.swimmer_id);
             const isFocused = index === focusedIndex;
+            const rank = getSwimmerSquadRank(swimmer?.attendance_stats);
 
             return (
               <div
@@ -548,7 +550,7 @@ export function AttendanceClient({
                     {swimmer ? getInitials(swimmer.full_name) : "??"}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <span className="font-bold text-sm text-foreground">
                         {swimmer?.full_name || "Swimmer"}
                       </span>
@@ -557,12 +559,25 @@ export function AttendanceClient({
                           ({swimmer.nickname})
                         </span>
                       )}
+                      {/* Funny Squad Rank Pill */}
+                      <span
+                        title={rank.description}
+                        className={cn(
+                          "text-[9px] font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 cursor-help",
+                          rank.colorScheme.pillBg
+                        )}
+                      >
+                        <span>{rank.emoji}</span>
+                        <span>{rank.title}</span>
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                       <span>{swimmer?.attendance_stats?.rate || 0}% overall</span>
+                      <span>&bull;</span>
+                      <span className="text-[11px] font-semibold text-muted-foreground">{rank.pollaTag}</span>
                       {record.notes && (
-                        <span className="text-aqua italic truncate max-w-[200px]">
+                        <span className="text-aqua italic truncate max-w-[180px]">
                           &bull; &ldquo;{record.notes}&rdquo;
                         </span>
                       )}

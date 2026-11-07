@@ -15,6 +15,7 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { DataStore } from "@/lib/data-store";
+import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import { getInitials, formatTime, cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,7 @@ export default async function SwimmerProfilePage({
 
   const stats = swimmer.attendance_stats;
   const attendedCount = (stats?.present || 0) + (stats?.late || 0);
+  const rank = getSwimmerSquadRank(stats);
 
   // Friendly Positive Milestones
   const milestones = [
@@ -126,6 +128,41 @@ export default async function SwimmerProfilePage({
             <div className="text-[11px] text-muted-foreground">
               Longest Streak: {stats?.longestStreak || 0} sessions
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Squad Persona & Polla Meter Card */}
+      <div className={cn("p-6 rounded-3xl border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4", rank.colorScheme.bg, rank.colorScheme.border)}>
+        <div className="flex items-start gap-4">
+          <div className="text-4xl select-none p-2 rounded-2xl bg-card border border-border/80 shadow-sm shrink-0">
+            {rank.emoji}
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase font-extrabold text-muted-foreground tracking-wider">
+                Official Squad Title
+              </span>
+              <span className={cn("text-[10px] font-extrabold px-2 py-0.5 rounded-full border", rank.colorScheme.pillBg)}>
+                {rank.pollaTag}
+              </span>
+            </div>
+            <h2 className={cn("text-xl font-extrabold mt-0.5", rank.colorScheme.text)}>
+              {rank.title} &bull; <span className="text-sm font-semibold opacity-90">{rank.badge}</span>
+            </h2>
+            <p className="text-xs text-foreground/80 mt-1 max-w-xl italic leading-relaxed">
+              &ldquo;{rank.description}&rdquo;
+            </p>
+          </div>
+        </div>
+
+        <div className="text-right shrink-0 p-3 rounded-2xl bg-card/80 border border-border">
+          <div className="text-[10px] font-bold text-muted-foreground uppercase">Polla Risk Assessment</div>
+          <div className={cn("text-sm font-black mt-0.5", rank.colorScheme.text)}>
+            {rank.pollaLevel === "zero" && "🛡️ 0% Polla Risk (Unshakable)"}
+            {rank.pollaLevel === "low" && "⚡ Minor Polla Suspect (1 Miss)"}
+            {rank.pollaLevel === "medium" && "⚠️ Moderate Flaker (2 Misses)"}
+            {rank.pollaLevel === "critical" && "🚨 Chronic Polla Specialist"}
           </div>
         </div>
       </div>

@@ -16,6 +16,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { DataStore } from "@/lib/data-store";
+import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import { formatTime, getInitials } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -350,31 +351,37 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 space-y-3">
-              {topStreaks.map((swimmer, idx) => (
-                <div
-                  key={swimmer.id}
-                  className="p-3 rounded-xl border border-border/70 bg-secondary/20 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-ocean-900 text-aqua border border-aqua/30 flex items-center justify-center font-bold text-xs">
-                      {getInitials(swimmer.full_name)}
+              {topStreaks.map((swimmer, idx) => {
+                const rank = getSwimmerSquadRank(swimmer.attendance_stats);
+                return (
+                  <div
+                    key={swimmer.id}
+                    className="p-3 rounded-xl border border-border/70 bg-secondary/20 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-ocean-900 text-aqua border border-aqua/30 flex items-center justify-center font-bold text-xs">
+                        {getInitials(swimmer.full_name)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-xs font-bold text-foreground">
+                            {swimmer.full_name}
+                          </h4>
+                          <span className="text-[10px]">{rank.emoji}</span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">
+                          {rank.title} &bull; {swimmer.attendance_stats?.rate}% rate
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-foreground">
-                        {swimmer.full_name}
-                      </h4>
-                      <span className="text-[10px] text-muted-foreground">
-                        {swimmer.attendance_stats?.rate}% overall rate
-                      </span>
-                    </div>
-                  </div>
 
-                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-coral/10 text-coral text-xs font-bold border border-coral/30">
-                    <Flame className="w-3.5 h-3.5 fill-coral" />
-                    <span>{swimmer.attendance_stats?.currentStreak || 0}</span>
+                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-coral/10 text-coral text-xs font-bold border border-coral/30">
+                      <Flame className="w-3.5 h-3.5 fill-coral" />
+                      <span>{swimmer.attendance_stats?.currentStreak || 0}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

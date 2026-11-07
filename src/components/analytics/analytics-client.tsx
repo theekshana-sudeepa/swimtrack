@@ -26,7 +26,8 @@ import {
   Pie,
 } from "recharts";
 import { Swimmer, SwimSession } from "@/types/database";
-import { formatTime } from "@/lib/utils";
+import { getSwimmerSquadRank } from "@/lib/squad-ranks";
+import { formatTime, cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface AnalyticsClientProps {
@@ -318,16 +319,18 @@ export function AnalyticsClient({
         </div>
       </div>
 
-      {/* Swimmer Consistency Streaks Table */}
+      {/* Swimmer Consistency Streaks & Squad Ranks Table */}
       <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center gap-2">
             <Flame className="w-4 h-4 text-coral" />
             <h2 className="font-bold text-sm text-foreground">
-              Swimmer Participation & Consistency Streaks
+              Squad Polla & Glory Leaderboard
             </h2>
           </div>
-          <span className="text-xs text-muted-foreground">Active Squad Swimmers</span>
+          <span className="text-xs text-muted-foreground font-mono">
+            Official Squad Titles & Polla Risk Ratings
+          </span>
         </div>
 
         <div className="overflow-x-auto">
@@ -335,17 +338,20 @@ export function AnalyticsClient({
             <thead className="text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border bg-secondary/20">
               <tr>
                 <th className="py-2.5 px-3">Swimmer</th>
+                <th className="py-2.5 px-3">Squad Rank & Title</th>
                 <th className="py-2.5 px-3">Attendance Rate</th>
                 <th className="py-2.5 px-3">Current Streak</th>
-                <th className="py-2.5 px-3">Longest Streak</th>
+                <th className="py-2.5 px-3">Polla Rating</th>
                 <th className="py-2.5 px-3">Present</th>
                 <th className="py-2.5 px-3">Late</th>
-                <th className="py-2.5 px-3">Absent</th>
+                <th className="py-2.5 px-3">Absent (Polla)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
               {swimmerLeaderboard.map((swimmer) => {
                 const s = swimmer.attendance_stats;
+                const rank = getSwimmerSquadRank(s);
+
                 return (
                   <tr key={swimmer.id} className="hover:bg-secondary/20 transition-colors">
                     <td className="py-3 px-3 font-bold text-foreground">
@@ -357,9 +363,21 @@ export function AnalyticsClient({
                       )}
                     </td>
                     <td className="py-3 px-3">
+                      <span
+                        title={rank.description}
+                        className={cn(
+                          "text-[10px] font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 cursor-help",
+                          rank.colorScheme.pillBg
+                        )}
+                      >
+                        <span>{rank.emoji}</span>
+                        <span>{rank.title}</span>
+                      </span>
+                    </td>
+                    <td className="py-3 px-3">
                       <div className="flex items-center gap-2">
                         <span className="font-extrabold text-aqua">{s?.rate || 0}%</span>
-                        <div className="w-16 h-1.5 rounded-full bg-secondary overflow-hidden">
+                        <div className="w-14 h-1.5 rounded-full bg-secondary overflow-hidden">
                           <div
                             className="h-full bg-aqua rounded-full"
                             style={{ width: `${s?.rate || 0}%` }}
@@ -373,12 +391,16 @@ export function AnalyticsClient({
                         <span>{s?.currentStreak || 0}</span>
                       </div>
                     </td>
-                    <td className="py-3 px-3 font-semibold text-muted-foreground">
-                      {s?.longestStreak || 0}
+                    <td className="py-3 px-3">
+                      <span className="text-[10px] font-bold">
+                        {rank.pollaTag}
+                      </span>
                     </td>
                     <td className="py-3 px-3 text-seafoam font-semibold">{s?.present || 0}</td>
                     <td className="py-3 px-3 text-amber-400 font-semibold">{s?.late || 0}</td>
-                    <td className="py-3 px-3 text-coral font-semibold">{s?.absent || 0}</td>
+                    <td className="py-3 px-3 text-coral font-extrabold">
+                      {s?.absent || 0} {s?.absent && s.absent > 0 ? "🏃💨" : "🛡️"}
+                    </td>
                   </tr>
                 );
               })}

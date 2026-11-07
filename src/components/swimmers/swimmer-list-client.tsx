@@ -18,6 +18,7 @@ import {
   Check,
 } from "lucide-react";
 import { Swimmer } from "@/types/database";
+import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import {
   createSwimmerAction,
   updateSwimmerAction,
@@ -214,6 +215,7 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
           filteredSwimmers.map((swimmer) => {
             const stats = swimmer.attendance_stats;
             const isArchived = swimmer.status === "archived";
+            const rank = getSwimmerSquadRank(stats);
 
             return (
               <div
@@ -242,9 +244,19 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                             </span>
                           )}
                         </Link>
-                        <p className="text-[11px] text-muted-foreground">
-                          Joined {swimmer.join_date}
-                        </p>
+                        {/* Funny Squad Rank */}
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span
+                            title={rank.description}
+                            className={cn(
+                              "text-[10px] font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 cursor-help",
+                              rank.colorScheme.pillBg
+                            )}
+                          >
+                            <span>{rank.emoji}</span>
+                            <span>{rank.title}</span>
+                          </span>
+                        </div>
                       </div>
                     </div>
 
@@ -255,6 +267,11 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                       </div>
                     )}
                   </div>
+
+                  {/* Funny Squad Description */}
+                  <p className="mt-2.5 text-[11px] text-muted-foreground italic leading-relaxed">
+                    &ldquo;{rank.description}&rdquo;
+                  </p>
 
                   {/* Contact Info Pills */}
                   <div className="mt-3.5 space-y-1 text-xs text-muted-foreground">
