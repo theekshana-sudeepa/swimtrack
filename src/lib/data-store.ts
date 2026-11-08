@@ -909,6 +909,80 @@ export const DataStore = {
     return record;
   },
 
+  checkInSwimmerWithGeofence(
+    swimmerId: string,
+    sessionId: string,
+    status: AttendanceStatus,
+    distanceMeters: number,
+    accuracyMeters: number,
+    reason?: string
+  ): { record: AttendanceRecord; auditLog: AttendanceAuditLog } {
+    let index = store.attendance.findIndex(
+      (a) => a.session_id === sessionId && a.swimmer_id === swimmerId
+    );
+
+    const now = new Date().toISOString();
+    let oldStatus: AttendanceStatus = "not_marked";
+
+    if (index === -1) {
+      const newRecord: AttendanceRecord = {
+        id: crypto.randomUUID(),
+        session_id: sessionId,
+        swimmer_id: swimmerId,
+        status,
+        notes: reason || `Self check-in via Geofence (${distanceMeters}m away)`,
+        checkin_method: "geofence_self",
+        checkin_distance: distanceMeters,
+        checkin_accuracy: accuracyMeters,
+        marked_at: now,
+        marked_by: swimmerId,
+        updated_at: now,
+      };
+      store.attendance.push(newRecord);
+      index = store.attendance.length - 1;
+    } else {
+      oldStatus = store.attendance[index].status;
+      store.attendance[index] = {
+        ...store.attendance[index],
+        status,
+        notes: reason || `Self check-in via Geofence (${distanceMeters}m away)`,
+        checkin_method: "geofence_self",
+        checkin_distance: distanceMeters,
+        checkin_accuracy: accuracyMeters,
+        marked_at: now,
+        marked_by: swimmerId,
+        updated_at: now,
+      };
+    }
+
+    const updatedRecord = store.attendance[index];
+    const swimmer = store.swimmers.find((s) => s.id === swimmerId);
+    const session = store.sessions.find((s) => s.id === sessionId);
+
+    // Create Audit Log
+    const auditLog: AttendanceAuditLog = {
+      id: crypto.randomUUID(),
+      session_id: sessionId,
+      swimmer_id: swimmerId,
+      old_status: oldStatus,
+      new_status: status,
+      change_reason: reason || `Self check-in via Geofence (${distanceMeters}m away)`,
+      actor_id: swimmerId,
+      created_at: now,
+      swimmer_name: swimmer ? swimmer.full_name : "Swimmer",
+      session_title: session ? session.title : "Swim Session",
+    };
+    store.auditLogs.unshift(auditLog);
+
+    return {
+      record: {
+        ...updatedRecord,
+        swimmer: swimmer ? { ...swimmer } : undefined,
+      },
+      auditLog,
+    };
+  },
+
   getSquadMessages(): SquadMessage[] {
     return (store.messages || [])
       .slice()

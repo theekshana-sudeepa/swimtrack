@@ -28,6 +28,7 @@ import {
   Plus,
   RefreshCw,
   Info,
+  MapPin,
 } from "lucide-react";
 import {
   AttendanceRecord,
@@ -978,6 +979,15 @@ export function AttendanceClient({
                               : "Excused"}
                           </span>
                         </button>
+                      )}
+                      {(record.checkin_method === "geofence_self" || record.notes?.includes("Geofence")) && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-aqua/10 text-aqua border border-aqua/30 text-[10px] font-extrabold"
+                          title={record.notes || "Self Check-in via Geofence"}
+                        >
+                          <MapPin className="w-3 h-3 text-aqua" />
+                          <span>Self Geofence</span>
+                        </span>
                       )}
                       {record.notes && record.status !== "late" && record.status !== "excused" && (
                         <span className="text-aqua italic truncate max-w-[180px]">

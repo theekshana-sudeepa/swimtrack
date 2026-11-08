@@ -67,6 +67,9 @@ export interface SwimSession {
   start_time: string; // HH:mm:ss
   end_time: string; // HH:mm:ss
   location: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofence_radius?: number | null;
   notes?: string | null;
   status: SessionStatus;
   is_finalized: boolean;
@@ -100,6 +103,9 @@ export interface AttendanceRecord {
   swimmer_id: string;
   status: AttendanceStatus;
   notes?: string | null;
+  checkin_method?: "coach_manual" | "geofence_self" | "bulk" | null;
+  checkin_distance?: number | null;
+  checkin_accuracy?: number | null;
   marked_at?: string;
   marked_by?: string | null;
   updated_at?: string;

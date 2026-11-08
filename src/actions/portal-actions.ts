@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
 import { sanitizeString } from "@/lib/security";
 import { chalkboardRateLimiter } from "@/lib/rate-limiter";
+import { validateGeofenceCheckin, getSessionVenueCoordinates } from "@/lib/geo-fence";
 
 /**
  * 1-Tap RSVP submission from the Swimmer Pass portal.
@@ -91,5 +93,113 @@ export async function postChalkboardMessageAction(token: string, content: string
   revalidatePath(`/portal/${token}`);
 
   return { success: true, message: msg };
+}
+
+/**
+ * Autonomous Swimmer Self-Check-in via Geofencing
+ * Validates GPS coordinates, accuracy, freshness, and Colombo time window on the server.
+ */
+export async function selfCheckInWithGeofenceAction(
+  token: string,
+  sessionId: string,
+  coords: {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    timestamp: number;
+  },
+  devBypass = false
+) {
+  const swimmer = DataStore.getSwimmerByToken(token);
+  if (!swimmer) {
+    return { success: false, error: "Invalid swimmer pass token." };
+  }
+
+  const session = DataStore.getSessionById(sessionId);
+  if (!session) {
+    return { success: false, error: "Swimming practice session not found." };
+  }
+
+  if (session.status === "cancelled") {
+    return { success: false, error: "This swimming practice has been cancelled." };
+  }
+
+  if (session.is_finalized) {
+    return {
+      success: false,
+      error: "Attendance for this session has already been finalized by the coach.",
+    };
+  }
+
+  // Prevent duplicate self-checkins
+  const existingAttendance = DataStore.getSessionAttendance(sessionId);
+  const myRecord = existingAttendance.find((a) => a.swimmer_id === swimmer.id);
+  if (myRecord && (myRecord.status === "present" || myRecord.status === "late")) {
+    return {
+      success: false,
+      error: `You have already checked in as ${myRecord.status.toUpperCase()}!`,
+    };
+  }
+
+  // Server-Side Geofence & Guardrail Verification
+  const isDev = process.env.NODE_ENV !== "production" || devBypass;
+  const validation = validateGeofenceCheckin({
+    userLat: coords.latitude,
+    userLng: coords.longitude,
+    accuracy: coords.accuracy,
+    clientTimestamp: coords.timestamp,
+    session,
+    bypassTimeWindowForDev: isDev,
+  });
+
+  if (!validation.isValid) {
+    return {
+      success: false,
+      error: validation.error || "Geofence check-in validation failed.",
+      distanceMeters: validation.distanceMeters,
+      radiusMeters: validation.radiusMeters,
+    };
+  }
+
+  // Log client IP for anti-proxy audit trail
+  let clientIp = "127.0.0.1";
+  try {
+    const reqHeaders = await headers();
+    clientIp = reqHeaders.get("x-forwarded-for")?.split(",")[0] || "127.0.0.1";
+  } catch {
+    // headers() graceful fallback
+  }
+
+  const reason = `${validation.reason} [IP: ${clientIp}]`;
+
+  // Update DataStore
+  const result = DataStore.checkInSwimmerWithGeofence(
+    swimmer.id,
+    sessionId,
+    validation.status,
+    validation.distanceMeters,
+    coords.accuracy,
+    reason
+  );
+
+  // Sync to Supabase
+  if (result.record) {
+    await SupabaseDB.upsertAttendance(result.record, swimmer.id, reason);
+  }
+
+  revalidatePath(`/portal/${token}`);
+  revalidatePath("/attendance");
+  revalidatePath(`/sessions/${sessionId}`);
+  revalidatePath("/dashboard");
+
+  return {
+    success: true,
+    record: result.record,
+    status: validation.status,
+    isLate: validation.isLate,
+    minutesLate: validation.minutesLate,
+    distanceMeters: validation.distanceMeters,
+    radiusMeters: validation.radiusMeters,
+  };
 }
 

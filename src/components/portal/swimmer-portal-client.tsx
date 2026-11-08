@@ -23,6 +23,8 @@ import { Swimmer, SwimSession, SquadMessage } from "@/types/database";
 import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
 import { submitRsvpAction, postChalkboardMessageAction } from "@/actions/portal-actions";
+import { PoolRadarCheckin } from "./pool-radar-checkin";
+import { AttendanceRecord } from "@/types/database";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
 import { SwimTrackLogo } from "@/components/brand/logo";
@@ -325,6 +327,26 @@ export function SwimmerPortalClient({
             </div>
           )}
         </div>
+
+        {/* Autonomous Geofence Radar Check-in */}
+        {nextSession && (
+          <PoolRadarCheckin
+            session={nextSession}
+            token={token}
+            existingAttendance={
+              existingRsvp
+                ? ({
+                    id: existingRsvp.id,
+                    session_id: nextSession.id,
+                    swimmer_id: swimmer.id,
+                    status: existingRsvp.status,
+                    notes: existingRsvp.notes,
+                    marked_at: existingRsvp.marked_at,
+                  } as AttendanceRecord)
+                : null
+            }
+          />
+        )}
 
         {/* Squad Chalkboard / Chat Wall */}
         <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">
