@@ -111,7 +111,10 @@ export async function cancelSessionAction(id: string) {
 
 export async function finalizeSessionAction(id: string) {
   const admin = await requireAdminSession();
-  DataStore.finalizeSession(id, admin.id);
+  const session = DataStore.finalizeSession(id, admin.id);
+  if (session) {
+    await SupabaseDB.upsertSession(session);
+  }
   revalidatePath("/sessions");
   revalidatePath(`/sessions/${id}`);
   revalidatePath("/attendance");
@@ -122,7 +125,10 @@ export async function finalizeSessionAction(id: string) {
 
 export async function reopenSessionAction(id: string) {
   await requireAdminSession();
-  DataStore.reopenSession(id);
+  const session = DataStore.reopenSession(id);
+  if (session) {
+    await SupabaseDB.upsertSession(session);
+  }
   revalidatePath("/sessions");
   revalidatePath(`/sessions/${id}`);
   revalidatePath("/attendance");

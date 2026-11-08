@@ -497,6 +497,28 @@ export const DataStore = {
   // Attendance Command Center Operations
   // ---------------------------------------------------------------------------
   getSessionAttendance(sessionId: string): AttendanceRecord[] {
+    // Automatically ensure all active squad members have an attendance record for this session
+    const activeSwimmers = store.swimmers.filter((s) => s.status === "active");
+    for (const sw of activeSwimmers) {
+      const exists = store.attendance.some(
+        (a) => a.session_id === sessionId && a.swimmer_id === sw.id
+      );
+      if (!exists) {
+        const newRecord: AttendanceRecord = {
+          id: crypto.randomUUID(),
+          session_id: sessionId,
+          swimmer_id: sw.id,
+          status: "not_marked",
+        };
+        store.attendance.push(newRecord);
+        if (typeof window === "undefined") {
+          import("./supabase-db").then(({ SupabaseDB }) => {
+            SupabaseDB.upsertAttendance(newRecord).catch(() => {});
+          });
+        }
+      }
+    }
+
     const records = store.attendance.filter((a) => a.session_id === sessionId);
     return records.map((record) => {
       const swimmer = store.swimmers.find((s) => s.id === record.swimmer_id);
@@ -524,7 +546,7 @@ export const DataStore = {
     if (index === -1) {
       // Create record if missing
       const newRecord: AttendanceRecord = {
-        id: `att-${sessionId}-${swimmerId}`,
+        id: crypto.randomUUID(),
         session_id: sessionId,
         swimmer_id: swimmerId,
         status,

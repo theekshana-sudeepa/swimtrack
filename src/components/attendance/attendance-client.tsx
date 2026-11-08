@@ -23,6 +23,9 @@ import {
   Share2,
   Copy,
   PartyPopper,
+  UserPlus,
+  Plus,
+  RefreshCw,
 } from "lucide-react";
 import {
   AttendanceRecord,
@@ -35,6 +38,8 @@ import {
   updateAttendanceStatusAction,
   markAllPresentAction,
   markRemainingAbsentAction,
+  addSwimmerToSessionAction,
+  syncAllActiveSwimmersToSessionAction,
 } from "@/actions/attendance-actions";
 import { finalizeSessionAction, reopenSessionAction } from "@/actions/session-actions";
 import { formatTime, getInitials, cn } from "@/lib/utils";
@@ -76,6 +81,17 @@ export function AttendanceClient({
     currentNote: string;
   } | null>(null);
   const [noteInput, setNoteInput] = React.useState("");
+
+  // Add Swimmer Modal State
+  const [showAddModal, setShowAddModal] = React.useState(false);
+  const [addFullName, setAddFullName] = React.useState("");
+  const [addNickname, setAddNickname] = React.useState("");
+  const [addEmail, setAddEmail] = React.useState("");
+  const [addPhone, setAddPhone] = React.useState("");
+  const [addStatus, setAddStatus] = React.useState<AttendanceStatus>("present");
+  const [addNotes, setAddNotes] = React.useState("");
+  const [isAddingSwimmer, setIsAddingSwimmer] = React.useState(false);
+  const [isSyncingSquad, setIsSyncingSquad] = React.useState(false);
 
   // Finalize Warning & Recap Modals
   const [showFinalizeWarning, setShowFinalizeWarning] = React.useState(false);
@@ -232,6 +248,74 @@ export function AttendanceClient({
     } catch {
       router.refresh();
       toast.error("Failed to mark remaining swimmers as absent.");
+    }
+  }
+
+  // Add Swimmer One-by-One Directly to Session
+  async function handleAddSwimmer(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addFullName.trim() || addFullName.trim().length < 2) {
+      toast.error("Please enter a valid swimmer name (at least 2 characters).");
+      return;
+    }
+
+    setIsAddingSwimmer(true);
+    try {
+      const res = await addSwimmerToSessionAction(session.id, {
+        full_name: addFullName.trim(),
+        nickname: addNickname.trim() || undefined,
+        email: addEmail.trim() || undefined,
+        phone: addPhone.trim() || undefined,
+        status: addStatus,
+        notes: addNotes.trim() || undefined,
+      });
+
+      if (res.success && res.record && res.swimmer) {
+        const newRecord: AttendanceRecord = {
+          ...res.record,
+          swimmer: res.swimmer,
+        };
+        setAttendance((prev) => {
+          const filtered = prev.filter((r) => r.swimmer_id !== res.swimmer.id);
+          return [newRecord, ...filtered];
+        });
+        toast.success(`${res.swimmer.full_name} added and marked ${addStatus.toUpperCase()}!`);
+        if (addStatus === "present") {
+          confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
+        }
+        setShowAddModal(false);
+        setAddFullName("");
+        setAddNickname("");
+        setAddEmail("");
+        setAddPhone("");
+        setAddNotes("");
+        setAddStatus("present");
+        router.refresh();
+      } else {
+        toast.error(res.error || "Failed to add swimmer.");
+      }
+    } catch {
+      toast.error("Error adding swimmer to session.");
+    } finally {
+      setIsAddingSwimmer(false);
+    }
+  }
+
+  // Enroll All Active Squad Members
+  async function handleSyncAllSquad() {
+    setIsSyncingSquad(true);
+    try {
+      const res = await syncAllActiveSwimmersToSessionAction(session.id);
+      if (res.success) {
+        toast.success(`Enrolled ${res.count} squad members into this session!`);
+        router.refresh();
+      } else {
+        toast.error(res.error || "Failed to sync squad.");
+      }
+    } catch {
+      toast.error("Error syncing squad swimmers.");
+    } finally {
+      setIsSyncingSquad(false);
     }
   }
 
@@ -582,6 +666,15 @@ export function AttendanceClient({
             <span>Remaining Absent</span>
           </button>
 
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="px-3.5 py-1.5 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Add Swimmer</span>
+          </button>
+
           <div className="hidden xl:flex items-center gap-1 text-[11px] text-muted-foreground ml-2 font-mono px-2 py-1 rounded bg-secondary/60">
             <Keyboard className="w-3.5 h-3.5 text-aqua mr-1" />
             <span>P: Present &bull; A: Absent &bull; L: Late &bull; E: Excused &bull; U: Reset</span>
@@ -748,14 +841,232 @@ export function AttendanceClient({
               </div>
             );
           })
+        ) : attendance.length === 0 ? (
+          <div className="py-14 text-center rounded-3xl border border-dashed border-border/80 bg-card/60 p-8 space-y-4 max-w-lg mx-auto">
+            <div className="w-14 h-14 rounded-2xl bg-aqua/10 text-aqua flex items-center justify-center mx-auto border border-aqua/20 shadow-inner">
+              <UserPlus className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-foreground">
+                No Swimmers on This Register Yet
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto leading-relaxed">
+                Add swimmers one by one to mark Present, Late, Absent, or Excused, or enroll all registered squad members.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Swimmer to Session</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSyncAllSquad}
+                disabled={isSyncingSquad}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-foreground font-semibold text-xs flex items-center justify-center gap-2 transition-all"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5 text-aqua", isSyncingSquad && "animate-spin")} />
+                <span>Enroll Active Squad Members</span>
+              </button>
+            </div>
+          </div>
         ) : (
-          <div className="py-12 text-center rounded-2xl border border-dashed border-border bg-card">
+          <div className="py-12 text-center rounded-2xl border border-dashed border-border bg-card space-y-2">
             <p className="text-sm font-semibold text-muted-foreground">
               No swimmers match the current filter or search criteria.
             </p>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                setStatusFilter("all");
+              }}
+              className="text-xs text-aqua underline font-semibold"
+            >
+              Clear filters
+            </button>
           </div>
         )}
       </div>
+
+      {/* Add Swimmer to Session Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-aqua" />
+                <h3 className="text-base font-bold text-foreground">
+                  Add Swimmer to Session
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddSwimmer} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={addFullName}
+                  onChange={(e) => setAddFullName(e.target.value)}
+                  placeholder="e.g. Laki Polla"
+                  className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1">
+                    Nickname (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={addNickname}
+                    onChange={(e) => setAddNickname(e.target.value)}
+                    placeholder="e.g. Polla"
+                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1">
+                    Phone / WhatsApp
+                  </label>
+                  <input
+                    type="tel"
+                    value={addPhone}
+                    onChange={(e) => setAddPhone(e.target.value)}
+                    placeholder="e.g. +94 77 123 4567"
+                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  Email (Optional)
+                </label>
+                <input
+                  type="email"
+                  value={addEmail}
+                  onChange={(e) => setAddEmail(e.target.value)}
+                  placeholder="e.g. lakipolla@pollamail.com"
+                  className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                />
+              </div>
+
+              {/* Status Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1.5">
+                  Set Attendance Status:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAddStatus("present")}
+                    className={cn(
+                      "py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all",
+                      addStatus === "present"
+                        ? "bg-seafoam text-ocean-950 shadow-md ring-2 ring-seafoam/40"
+                        : "border border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"
+                    )}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Present</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAddStatus("late")}
+                    className={cn(
+                      "py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all",
+                      addStatus === "late"
+                        ? "bg-amber-400 text-ocean-950 shadow-md ring-2 ring-amber-400/40"
+                        : "border border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"
+                    )}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Late</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAddStatus("absent")}
+                    className={cn(
+                      "py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all",
+                      addStatus === "absent"
+                        ? "bg-coral text-ocean-950 shadow-md ring-2 ring-coral/40"
+                        : "border border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"
+                    )}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Absent</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAddStatus("excused")}
+                    className={cn(
+                      "py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all",
+                      addStatus === "excused"
+                        ? "bg-sky-400 text-ocean-950 shadow-md ring-2 ring-sky-400/40"
+                        : "border border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"
+                    )}
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>Excused</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  Session Note (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={addNotes}
+                  onChange={(e) => setAddNotes(e.target.value)}
+                  placeholder="e.g. Arrived on time, lane 3"
+                  className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingSwimmer}
+                  className="px-4 py-2 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isAddingSwimmer ? "Adding..." : "Add & Mark Swimmer"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Note Edit Modal */}
       {activeNoteSwimmer && (

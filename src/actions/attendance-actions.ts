@@ -72,3 +72,112 @@ export async function markRemainingAbsentAction(sessionId: string) {
   return { success: true, count };
 }
 
+/**
+ * Add a swimmer one by one directly from the attendance deck
+ * and immediately set their attendance status (present, late, absent, excused).
+ */
+export async function addSwimmerToSessionAction(
+  sessionId: string,
+  swimmerData: {
+    full_name: string;
+    nickname?: string;
+    email?: string;
+    phone?: string;
+    status: AttendanceStatus;
+    notes?: string;
+  }
+) {
+  const admin = await requireAdminSession();
+
+  const session = DataStore.getSessionById(sessionId);
+  if (!session) {
+    return { success: false, error: "Session not found." };
+  }
+
+  const cleanName = swimmerData.full_name?.trim();
+  if (!cleanName || cleanName.length < 2) {
+    return { success: false, error: "Please enter a valid swimmer name (at least 2 characters)." };
+  }
+
+  // 1. Check if swimmer already exists
+  const existingList = DataStore.getSwimmers({ status: "all" });
+  let swimmer = swimmerData.email
+    ? existingList.find((s) => s.email && s.email.toLowerCase() === swimmerData.email!.toLowerCase())
+    : null;
+
+  if (!swimmer) {
+    swimmer = existingList.find((s) => s.full_name.toLowerCase() === cleanName.toLowerCase());
+  }
+
+  if (!swimmer) {
+    // 2. Create new swimmer
+    swimmer = DataStore.createSwimmer({
+      full_name: cleanName,
+      nickname: swimmerData.nickname?.trim() || undefined,
+      email: swimmerData.email?.trim() || undefined,
+      phone: swimmerData.phone?.trim() || undefined,
+      notes: swimmerData.notes?.trim() || undefined,
+      email_reminders_enabled: swimmerData.email ? true : false,
+    });
+    await SupabaseDB.insertSwimmer(swimmer);
+  }
+
+  // 3. Mark attendance status for this session
+  const result = DataStore.updateAttendanceStatus(
+    sessionId,
+    swimmer.id,
+    swimmerData.status || "present",
+    swimmerData.notes,
+    admin.id
+  );
+
+  await SupabaseDB.upsertAttendance(
+    result.record,
+    admin.id,
+    "Added directly to session register"
+  );
+
+  revalidatePath("/attendance");
+  revalidatePath(`/sessions/${sessionId}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/swimmers");
+
+  return { success: true, swimmer, record: result.record };
+}
+
+/**
+ * Ensures all active squad swimmers are enrolled into this session's attendance register.
+ */
+export async function syncAllActiveSwimmersToSessionAction(sessionId: string) {
+  const admin = await requireAdminSession();
+
+  const session = DataStore.getSessionById(sessionId);
+  if (!session) {
+    return { success: false, error: "Session not found." };
+  }
+
+  const activeSwimmers = DataStore.getSwimmers({ status: "active" });
+  let enrolledCount = 0;
+
+  for (const sw of activeSwimmers) {
+    const records = DataStore.getSessionAttendance(sessionId);
+    const alreadyEnrolled = records.some((r) => r.swimmer_id === sw.id);
+    if (!alreadyEnrolled) {
+      const result = DataStore.updateAttendanceStatus(
+        sessionId,
+        sw.id,
+        "not_marked",
+        undefined,
+        admin.id
+      );
+      await SupabaseDB.upsertAttendance(result.record, admin.id, "Auto-enrolled into session");
+      enrolledCount++;
+    }
+  }
+
+  revalidatePath("/attendance");
+  revalidatePath(`/sessions/${sessionId}`);
+  revalidatePath("/dashboard");
+
+  return { success: true, count: enrolledCount };
+}
