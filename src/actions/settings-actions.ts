@@ -45,3 +45,4 @@ export async function wipeAllDataAction(): Promise<{ success: boolean; error?: s
     return { success: false, error: errorMsg };
   }
 }
+
