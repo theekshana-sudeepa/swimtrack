@@ -113,6 +113,34 @@ export const DataStore = {
   },
 
   // ---------------------------------------------------------------------------
+  // Supabase Hydration & Synchronization
+  // ---------------------------------------------------------------------------
+  async syncFromSupabase(): Promise<boolean> {
+    const { SupabaseDB } = await import("./supabase-db");
+    return SupabaseDB.syncStoreFromSupabase();
+  },
+
+  hydrateSwimmers(swimmers: Swimmer[]): void {
+    store.swimmers = swimmers;
+  },
+
+  hydrateSessions(sessions: SwimSession[]): void {
+    store.sessions = sessions;
+  },
+
+  hydrateAttendance(records: AttendanceRecord[]): void {
+    store.attendance = records;
+  },
+
+  hydrateSettings(settings: Record<string, AppSetting>): void {
+    store.settings = { ...store.settings, ...settings };
+  },
+
+  hydrateReminders(reminders: ReminderDelivery[]): void {
+    store.reminders = reminders;
+  },
+
+  // ---------------------------------------------------------------------------
   // Swimmers
   // ---------------------------------------------------------------------------
   getSwimmers(options?: { status?: "active" | "archived" | "all"; search?: string }): Swimmer[] {
@@ -177,7 +205,8 @@ export const DataStore = {
     avatar_color?: string;
     email_reminders_enabled?: boolean;
   }): Swimmer {
-    const newId = `swimmer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const newId = crypto.randomUUID();
+    const prefId = crypto.randomUUID();
     const newSwimmer: Swimmer = {
       id: newId,
       full_name: data.full_name,
@@ -189,7 +218,7 @@ export const DataStore = {
       notes: data.notes || null,
       avatar_color: data.avatar_color || "ocean",
       reminder_preferences: {
-        id: `pref-${newId}`,
+        id: prefId,
         swimmer_id: newId,
         email_reminders_enabled: data.email_reminders_enabled ?? (data.email ? true : false),
         opt_out_token: `token_${newId}`,
@@ -202,7 +231,7 @@ export const DataStore = {
     const upcoming = store.sessions.filter((s) => s.status === "scheduled");
     for (const sess of upcoming) {
       store.attendance.push({
-        id: `att-${sess.id}-${newId}`,
+        id: crypto.randomUUID(),
         session_id: sess.id,
         swimmer_id: newId,
         status: "not_marked",
@@ -337,7 +366,7 @@ export const DataStore = {
     notes?: string;
     series_id?: string | null;
   }): SwimSession {
-    const newId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const newId = crypto.randomUUID();
     const newSession: SwimSession = {
       id: newId,
       series_id: data.series_id || null,
@@ -359,7 +388,7 @@ export const DataStore = {
     const activeSwimmers = store.swimmers.filter((s) => s.status === "active");
     for (const swimmer of activeSwimmers) {
       store.attendance.push({
-        id: `att-${newId}-${swimmer.id}`,
+        id: crypto.randomUUID(),
         session_id: newId,
         swimmer_id: swimmer.id,
         status: "not_marked",
@@ -418,7 +447,7 @@ export const DataStore = {
     start_date: string;
     occurrences_to_generate?: number;
   }): { series: SessionSeries; createdSessionsCount: number } {
-    const seriesId = `series-${Date.now()}`;
+    const seriesId = crypto.randomUUID();
     const newSeries: SessionSeries = {
       id: seriesId,
       title: data.title,
@@ -523,7 +552,7 @@ export const DataStore = {
 
     // Create Audit Log
     const auditLog: AttendanceAuditLog = {
-      id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: crypto.randomUUID(),
       session_id: sessionId,
       swimmer_id: swimmerId,
       old_status: oldStatus,
@@ -627,7 +656,7 @@ export const DataStore = {
     const session = store.sessions.find((s) => s.id === delivery.session_id);
 
     const record: ReminderDelivery = {
-      id: `rem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: crypto.randomUUID(),
       claim_key: delivery.claim_key,
       session_id: delivery.session_id,
       swimmer_id: delivery.swimmer_id,
@@ -644,6 +673,11 @@ export const DataStore = {
     };
 
     store.reminders.unshift(record);
+
+    // Persist to Supabase if connected
+    import("./supabase-db").then(({ SupabaseDB }) => {
+      SupabaseDB.insertReminderDelivery(record).catch(() => {});
+    });
     return record;
   },
 

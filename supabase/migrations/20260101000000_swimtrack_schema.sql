@@ -162,8 +162,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_created ON public.attendance_audit_log(
 CREATE TABLE IF NOT EXISTS public.reminder_deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     claim_key TEXT NOT NULL UNIQUE, -- e.g. "{sessionId}:{swimmerId}:{reminderType}:{dateStr}"
-    session_id UUID NOT NULL REFERENCES public.swim_sessions(id) ON DELETE CASCADE,
-    swimmer_id UUID NOT NULL REFERENCES public.swimmers(id) ON DELETE CASCADE,
+    session_id UUID REFERENCES public.swim_sessions(id) ON DELETE CASCADE,
+    swimmer_id UUID REFERENCES public.swimmers(id) ON DELETE CASCADE,
     reminder_type TEXT NOT NULL CHECK (reminder_type IN ('upcoming', 'today', 'changed', 'cancelled', 'manual')),
     recipient_email TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),

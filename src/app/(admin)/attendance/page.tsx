@@ -11,6 +11,7 @@ export default async function AttendancePage({
 }: {
   searchParams: Promise<{ session?: string }>;
 }) {
+  await DataStore.syncFromSupabase();
   const resolvedParams = await searchParams;
   const allSessions = DataStore.getSessions({ status: "all" });
 

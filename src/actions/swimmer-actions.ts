@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
+import { SupabaseDB } from "@/lib/supabase-db";
 import { sendWelcomeEmail, sendAdminNewSwimmerAlert } from "@/lib/resend-service";
 import { Swimmer } from "@/types/database";
 
@@ -30,6 +31,9 @@ export async function createSwimmerAction(formData: FormData) {
     avatar_color,
     email_reminders_enabled: email ? email_reminders_enabled : false,
   });
+
+  // Persist directly to Supabase Postgres database
+  await SupabaseDB.insertSwimmer(swimmer);
 
   // Automatically dispatch Welcome Pass email if email provided
   if (email && email.includes("@")) {
@@ -79,6 +83,17 @@ export async function updateSwimmerAction(id: string, formData: FormData) {
     email_reminders_enabled,
   });
 
+  // Persist directly to Supabase Postgres database
+  await SupabaseDB.updateSwimmer(id, {
+    full_name,
+    nickname,
+    email,
+    phone,
+    notes,
+    avatar_color,
+    email_reminders_enabled,
+  });
+
   revalidatePath("/swimmers");
   revalidatePath(`/swimmers/${id}`);
   revalidatePath("/attendance");
@@ -89,6 +104,7 @@ export async function updateSwimmerAction(id: string, formData: FormData) {
 export async function archiveSwimmerAction(id: string) {
   await requireAdminSession();
   DataStore.archiveSwimmer(id);
+  await SupabaseDB.archiveSwimmer(id);
   revalidatePath("/swimmers");
   revalidatePath(`/swimmers/${id}`);
   revalidatePath("/dashboard");
@@ -98,6 +114,7 @@ export async function archiveSwimmerAction(id: string) {
 export async function restoreSwimmerAction(id: string) {
   await requireAdminSession();
   DataStore.restoreSwimmer(id);
+  await SupabaseDB.restoreSwimmer(id);
   revalidatePath("/swimmers");
   revalidatePath(`/swimmers/${id}`);
   revalidatePath("/dashboard");
@@ -124,6 +141,9 @@ export async function joinSquadAction(formData: FormData): Promise<{
     return { success: false, error: "Please enter your full name (at least 2 characters)." };
   }
 
+  // Ensure latest squad state from Supabase
+  await DataStore.syncFromSupabase();
+
   // Check if swimmer already exists with the same email or full name
   const existingList = DataStore.getSwimmers({ status: "all" });
   const existingByEmail = email
@@ -148,6 +168,12 @@ export async function joinSquadAction(formData: FormData): Promise<{
       return { success: false, error: "Failed to update existing swimmer profile." };
     }
     swimmer = updated;
+    await SupabaseDB.updateSwimmer(existingByEmail.id, {
+      full_name,
+      nickname: nickname || existingByEmail.nickname || undefined,
+      phone: phone || existingByEmail.phone || undefined,
+      email_reminders_enabled: email ? email_reminders_enabled : false,
+    });
   } else if (existingByName) {
     isExisting = true;
     const updated = DataStore.updateSwimmer(existingByName.id, {
@@ -160,6 +186,12 @@ export async function joinSquadAction(formData: FormData): Promise<{
       return { success: false, error: "Failed to update existing swimmer profile." };
     }
     swimmer = updated;
+    await SupabaseDB.updateSwimmer(existingByName.id, {
+      nickname: nickname || existingByName.nickname || undefined,
+      email: email || existingByName.email || undefined,
+      phone: phone || existingByName.phone || undefined,
+      email_reminders_enabled: email ? email_reminders_enabled : false,
+    });
   } else {
     swimmer = DataStore.createSwimmer({
       full_name,
@@ -169,6 +201,8 @@ export async function joinSquadAction(formData: FormData): Promise<{
       email_reminders_enabled: email ? email_reminders_enabled : false,
       notes: "Self-registered via squad invite link",
     });
+    // Persist directly to Supabase Postgres database & auto-enroll in scheduled sessions
+    await SupabaseDB.insertSwimmer(swimmer);
   }
 
   // Dispatch welcome email whenever an email address is provided

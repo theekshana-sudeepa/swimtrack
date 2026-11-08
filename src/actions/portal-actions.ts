@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { DataStore } from "@/lib/data-store";
+import { SupabaseDB } from "@/lib/supabase-db";
 
 /**
  * 1-Tap RSVP submission from the Swimmer Pass portal.
@@ -29,6 +30,15 @@ export async function submitRsvpAction(
     status,
     reason?.trim() || undefined
   );
+
+  // Persist directly to Supabase
+  if (record) {
+    await SupabaseDB.upsertAttendance(
+      record,
+      undefined,
+      reason ? `RSVP: ${status} (${reason})` : `RSVP: ${status}`
+    );
+  }
 
   revalidatePath(`/portal/${token}`);
   revalidatePath("/attendance");

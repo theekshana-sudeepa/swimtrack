@@ -13,6 +13,7 @@ export default async function SwimmerPortalPage({
 }: {
   params: Promise<{ token: string }>;
 }) {
+  await DataStore.syncFromSupabase();
   const { token } = await params;
   const swimmer = DataStore.getSwimmerByToken(token);
 

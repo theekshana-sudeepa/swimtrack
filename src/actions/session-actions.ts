@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
+import { SupabaseDB } from "@/lib/supabase-db";
 
 export async function createSessionAction(formData: FormData) {
   await requireAdminSession();
@@ -26,6 +27,9 @@ export async function createSessionAction(formData: FormData) {
     location,
     notes,
   });
+
+  // Persist directly to Supabase Postgres database
+  await SupabaseDB.upsertSession(session);
 
   revalidatePath("/sessions");
   revalidatePath("/calendar");

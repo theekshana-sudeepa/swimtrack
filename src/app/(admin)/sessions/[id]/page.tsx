@@ -24,6 +24,7 @@ export default async function SessionDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await DataStore.syncFromSupabase();
   const resolvedParams = await params;
   const session = DataStore.getSessionById(resolvedParams.id);
 

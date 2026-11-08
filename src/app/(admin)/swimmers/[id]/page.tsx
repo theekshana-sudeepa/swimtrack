@@ -25,6 +25,7 @@ export default async function SwimmerProfilePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await DataStore.syncFromSupabase();
   const resolvedParams = await params;
   const swimmer = DataStore.getSwimmerById(resolvedParams.id);
 

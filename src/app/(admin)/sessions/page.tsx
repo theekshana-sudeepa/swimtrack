@@ -4,7 +4,8 @@ import { SessionListClient } from "@/components/sessions/session-list-client";
 
 export const dynamic = "force-dynamic";
 
-export default function SessionsPage() {
+export default async function SessionsPage() {
+  await DataStore.syncFromSupabase();
   const sessions = DataStore.getSessions({ status: "all" });
 
   return <SessionListClient initialSessions={sessions} />;

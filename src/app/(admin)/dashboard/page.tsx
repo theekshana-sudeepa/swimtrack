@@ -21,7 +21,8 @@ import { formatTime, getInitials } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  await DataStore.syncFromSupabase();
   const stats = DataStore.getDashboardStats();
   const nextSession = DataStore.getNextUpcomingSession();
   const recentSessions = DataStore.getSessions({ status: "completed" }).slice(0, 4);
