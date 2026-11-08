@@ -13,6 +13,7 @@ import {
   Lock,
   Download,
   AlertTriangle,
+  ShieldAlert,
 } from "lucide-react";
 import { DataStore } from "@/lib/data-store";
 import { formatTime, getInitials, cn } from "@/lib/utils";
@@ -223,6 +224,11 @@ export default async function SessionDetailPage({
                           <>
                             <Clock className="w-3 h-3 text-amber-400 stroke-[2.5]" />
                             <span>Late (+{lateInfo.minutesLate}m)</span>
+                          </>
+                        ) : record.status === "excused" ? (
+                          <>
+                            <ShieldAlert className="w-3 h-3 text-sky-400 stroke-[2.5]" />
+                            <span>Excused</span>
                           </>
                         ) : (
                           record.status

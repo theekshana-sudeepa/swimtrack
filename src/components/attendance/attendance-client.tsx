@@ -26,6 +26,7 @@ import {
   UserPlus,
   Plus,
   RefreshCw,
+  Info,
 } from "lucide-react";
 import {
   AttendanceRecord,
@@ -177,6 +178,54 @@ export function AttendanceClient({
       `${activeLateRecord.swimmerName} marked Late (${lateMinutes}m late • Arrived ${arr12})`
     );
     setActiveLateRecord(null);
+  }
+
+  // Excused Absence Modal State
+  const [activeExcusedRecord, setActiveExcusedRecord] = React.useState<{
+    swimmerId: string;
+    swimmerName: string;
+    nickname?: string | null;
+    currentNotes?: string | null;
+  } | null>(null);
+  const [excusedReason, setExcusedReason] = React.useState("Fever / Flu / Sick");
+  const [customExcusedNote, setCustomExcusedNote] = React.useState("");
+
+  function openExcusedModal(
+    swimmerId: string,
+    swimmerName: string,
+    nickname?: string | null,
+    existingNotes?: string | null
+  ) {
+    if (existingNotes) {
+      const clean = existingNotes.replace(/^Excused:\s*/i, "").trim();
+      const parts = clean.split(/[—\-–]/);
+      const mainReason = parts[0]?.trim() || "Fever / Flu / Sick";
+      const extraNote = parts[1]?.trim() || "";
+      setExcusedReason(mainReason);
+      setCustomExcusedNote(extraNote);
+    } else {
+      setExcusedReason("Fever / Flu / Sick");
+      setCustomExcusedNote("");
+    }
+
+    setActiveExcusedRecord({
+      swimmerId,
+      swimmerName,
+      nickname,
+      currentNotes: existingNotes,
+    });
+  }
+
+  async function handleConfirmExcused() {
+    if (!activeExcusedRecord) return;
+    const cleanCustom = customExcusedNote.trim();
+    const finalReason = cleanCustom
+      ? `Excused: ${excusedReason} — ${cleanCustom}`
+      : `Excused: ${excusedReason}`;
+
+    await handleStatusChange(activeExcusedRecord.swimmerId, "excused", finalReason);
+    toast.success(`${activeExcusedRecord.swimmerName} marked Excused (${excusedReason})`);
+    setActiveExcusedRecord(null);
   }
 
   // Add Swimmer Modal State
@@ -485,8 +534,11 @@ export function AttendanceClient({
     }
 
     if (excusedList.length > 0) {
-      lines.push(`🩹 *Excused:*`);
-      excusedList.forEach((r) => lines.push(`• ${r.swimmer?.full_name || "Swimmer"}`));
+      lines.push(`🩹 *Excused Absence:*`);
+      excusedList.forEach((r) => {
+        const reason = r.notes ? ` (${r.notes.replace(/^Excused:\s*/i, "")})` : "";
+        lines.push(`• ${r.swimmer?.full_name || "Swimmer"}${reason}`);
+      });
       lines.push(``);
     }
 
@@ -535,6 +587,7 @@ export function AttendanceClient({
         target.isContentEditable ||
         activeNoteSwimmer !== null ||
         activeLateRecord !== null ||
+        activeExcusedRecord !== null ||
         showAddModal ||
         showFinalizeWarning
       ) {
@@ -568,7 +621,12 @@ export function AttendanceClient({
         );
       } else if (key === "e") {
         e.preventDefault();
-        handleStatusChange(currentRecord.swimmer_id, "excused");
+        openExcusedModal(
+          currentRecord.swimmer_id,
+          currentRecord.swimmer?.full_name || "Swimmer",
+          currentRecord.swimmer?.nickname,
+          currentRecord.notes
+        );
       } else if (key === "u") {
         e.preventDefault();
         handleStatusChange(currentRecord.swimmer_id, "not_marked");
@@ -581,7 +639,7 @@ export function AttendanceClient({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusedIndex, filteredRecords, activeNoteSwimmer, activeLateRecord, showAddModal, showFinalizeWarning, lastAction]);
+  }, [focusedIndex, filteredRecords, activeNoteSwimmer, activeLateRecord, activeExcusedRecord, showAddModal, showFinalizeWarning, lastAction]);
 
   return (
     <div className="space-y-6">
@@ -872,7 +930,30 @@ export function AttendanceClient({
                           )}
                         </button>
                       )}
-                      {record.notes && record.status !== "late" && (
+                      {record.status === "excused" && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openExcusedModal(
+                              record.swimmer_id,
+                              swimmer?.full_name || "Swimmer",
+                              swimmer?.nickname,
+                              record.notes
+                            );
+                          }}
+                          title="Click to edit excused reason"
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-400/20 text-sky-300 border border-sky-400/40 hover:bg-sky-400/30 transition-all cursor-pointer shadow-xs"
+                        >
+                          <ShieldAlert className="w-3 h-3 text-sky-400" />
+                          <span>
+                            {record.notes
+                              ? record.notes.replace(/^Excused:\s*/i, "")
+                              : "Excused"}
+                          </span>
+                        </button>
+                      )}
+                      {record.notes && record.status !== "late" && record.status !== "excused" && (
                         <span className="text-aqua italic truncate max-w-[180px]">
                           &bull; &ldquo;{record.notes}&rdquo;
                         </span>
@@ -942,7 +1023,14 @@ export function AttendanceClient({
                   {/* Excused Button */}
                   <button
                     type="button"
-                    onClick={() => handleStatusChange(record.swimmer_id, "excused")}
+                    onClick={() =>
+                      openExcusedModal(
+                        record.swimmer_id,
+                        swimmer?.full_name || "Swimmer",
+                        swimmer?.nickname,
+                        record.notes
+                      )
+                    }
                     className={cn(
                       "flex-1 sm:flex-initial min-w-[70px] sm:min-w-[80px] h-10 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-95",
                       record.status === "excused"
@@ -1539,6 +1627,126 @@ export function AttendanceClient({
               >
                 <Clock className="w-4 h-4 stroke-[2.5]" />
                 <span>Confirm: {lateMinutes}m Late ({minutesToTime12(parseTimeToMinutes(lateArrivalTime))})</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Poolside Excused Absence Modal */}
+      {activeExcusedRecord && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-card border border-border rounded-3xl p-5 sm:p-6 w-full max-w-lg shadow-2xl space-y-4">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-sky-400/10 border border-sky-400/30 text-sky-400 flex items-center justify-center">
+                  <ShieldAlert className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Record Excused Absence
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {activeExcusedRecord.swimmerName}{" "}
+                    {activeExcusedRecord.nickname ? `(${activeExcusedRecord.nickname})` : ""}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveExcusedRecord(null)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Attendance Impact Banner */}
+            <div className="p-3 rounded-2xl bg-sky-400/10 border border-sky-400/20 flex items-start gap-2.5 text-xs text-sky-200">
+              <Info className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
+              <p>
+                Excused absences <strong>do not penalize</strong> squad attendance percentage or break active training streaks.
+              </p>
+            </div>
+
+            {/* Common Medical & Academic Reasons */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
+                Select Reason (One Tap)
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: "Fever / Flu / Sick", icon: "🤒" },
+                  { label: "Injury / Muscle Strain", icon: "🩹" },
+                  { label: "Swimmer's Ear / Infection", icon: "🏊" },
+                  { label: "School Exam / Tuition", icon: "📚" },
+                  { label: "Swim Meet / Trials", icon: "🏆" },
+                  { label: "Family Event / Travel", icon: "✈️" },
+                  { label: "Heavy Rain / Weather", icon: "🌧" },
+                  { label: "Transport / Traffic", icon: "🚗" },
+                ].map((item) => {
+                  const isSelected = excusedReason === item.label;
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => setExcusedReason(item.label)}
+                      className={cn(
+                        "p-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 text-left transition-all active:scale-[0.98]",
+                        isSelected
+                          ? "bg-sky-400 text-ocean-950 border-sky-400 shadow-md font-bold ring-2 ring-sky-400/30"
+                          : "bg-secondary/40 hover:bg-secondary border-border text-foreground"
+                      )}
+                    >
+                      <span className="text-base leading-none">{item.icon}</span>
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom Notes / Specific Details Box */}
+            <div className="space-y-2 pt-1">
+              <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
+                Additional Details / Coach Notes (Optional)
+              </label>
+              <textarea
+                rows={2}
+                value={customExcusedNote}
+                onChange={(e) => setCustomExcusedNote(e.target.value)}
+                placeholder="e.g. Doctor advised 3 days rest; O/L Term test this week; Junior Nationals trials in Colombo..."
+                className="w-full px-3 py-2 text-xs rounded-xl border border-border bg-secondary/40 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none"
+              />
+            </div>
+
+            {/* Live Summary Preview */}
+            <div className="p-2.5 rounded-xl bg-secondary/30 border border-border/60 text-[11px] flex items-center justify-between text-muted-foreground">
+              <span>Preview in register & WhatsApp:</span>
+              <span className="font-semibold text-sky-300">
+                {customExcusedNote.trim()
+                  ? `${excusedReason} — ${customExcusedNote.trim()}`
+                  : excusedReason}
+              </span>
+            </div>
+
+            {/* Confirmation Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2 border-t border-border/80">
+              <button
+                type="button"
+                onClick={() => setActiveExcusedRecord(null)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmExcused}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-sky-400 hover:bg-sky-300 text-ocean-950 text-xs font-black flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95"
+              >
+                <ShieldAlert className="w-4 h-4 stroke-[2.5]" />
+                <span>Confirm Excused Absence</span>
               </button>
             </div>
           </div>
