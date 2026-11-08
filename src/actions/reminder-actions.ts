@@ -12,6 +12,7 @@ export async function sendManualSessionRemindersAction(
   isDryRun = false
 ) {
   await requireAdminSession();
+  await DataStore.syncFromSupabase();
 
   const session = DataStore.getSessionById(sessionId);
   if (!session) {

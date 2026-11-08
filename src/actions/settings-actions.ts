@@ -5,6 +5,14 @@ import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import { sanitizeString, sanitizeEmail } from "@/lib/security";
+import {
+  Swimmer,
+  SwimSession,
+  AttendanceRecord,
+  ReminderDelivery,
+  AppSetting,
+  SessionSeries,
+} from "@/types/database";
 
 /**
  * Wipes all demo/test attendance records, sessions, and swimmers
@@ -149,6 +157,70 @@ export async function updateReminderPreferencesSettingAction(formData: FormData)
     return { success: true };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Failed to update reminder settings";
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Generates a full JSON database backup from the latest synchronized state.
+ */
+export async function exportDatabaseBackupAction(): Promise<{
+  success: boolean;
+  data?: {
+    swimmers: Swimmer[];
+    sessions: SwimSession[];
+    series: SessionSeries[];
+    attendance: AttendanceRecord[];
+    reminders: ReminderDelivery[];
+    settings: Record<string, AppSetting>;
+    exportedAt: string;
+    version: string;
+  };
+  error?: string;
+}> {
+  await requireAdminSession();
+  await DataStore.syncFromSupabase();
+
+  try {
+    const backup = {
+      swimmers: DataStore.getSwimmers({ status: "all" }),
+      sessions: DataStore.getSessions({ status: "all" }),
+      series: DataStore.getSeries(),
+      attendance: DataStore.getAllAttendance(),
+      reminders: DataStore.getReminderDeliveries(100),
+      settings: DataStore.getAppSettings(),
+      exportedAt: new Date().toISOString(),
+      version: "2.0.0",
+    };
+
+    return { success: true, data: backup };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Failed to export database backup.";
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Resets local database state to initial demo dataset.
+ */
+export async function resetToDemoAction(): Promise<{ success: boolean; error?: string }> {
+  await requireAdminSession();
+
+  try {
+    DataStore.resetToDemo();
+
+    revalidatePath("/dashboard");
+    revalidatePath("/swimmers");
+    revalidatePath("/sessions");
+    revalidatePath("/attendance");
+    revalidatePath("/analytics");
+    revalidatePath("/calendar");
+    revalidatePath("/reminders");
+    revalidatePath("/settings");
+
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Failed to reset demo dataset.";
     return { success: false, error: errorMsg };
   }
 }

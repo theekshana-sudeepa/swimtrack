@@ -145,6 +145,10 @@ export const DataStore = {
     store.reminders = reminders;
   },
 
+  hydrateSeries(series: SessionSeries[]): void {
+    store.series = series;
+  },
+
   // ---------------------------------------------------------------------------
   // Swimmers
   // ---------------------------------------------------------------------------
@@ -438,6 +442,14 @@ export const DataStore = {
     });
   },
 
+  deleteSession(id: string): boolean {
+    const idx = store.sessions.findIndex((s) => s.id === id);
+    if (idx === -1) return false;
+    store.sessions.splice(idx, 1);
+    store.attendance = store.attendance.filter((a) => a.session_id !== id);
+    return true;
+  },
+
   getSeries(): SessionSeries[] {
     return [...store.series];
   },
@@ -526,6 +538,16 @@ export const DataStore = {
 
     const records = store.attendance.filter((a) => a.session_id === sessionId);
     return records.map((record) => {
+      const swimmer = store.swimmers.find((s) => s.id === record.swimmer_id);
+      return {
+        ...record,
+        swimmer: swimmer ? { ...swimmer } : undefined,
+      };
+    });
+  },
+
+  getAllAttendance(): AttendanceRecord[] {
+    return store.attendance.map((record) => {
       const swimmer = store.swimmers.find((s) => s.id === record.swimmer_id);
       return {
         ...record,

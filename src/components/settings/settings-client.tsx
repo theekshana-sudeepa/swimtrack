@@ -22,8 +22,9 @@ import {
   wipeAllDataAction,
   updateGeneralPreferencesAction,
   updateReminderPreferencesSettingAction,
+  exportDatabaseBackupAction,
+  resetToDemoAction,
 } from "@/actions/settings-actions";
-import { DataStore } from "@/lib/data-store";
 import { AppSetting } from "@/types/database";
 import { toast } from "sonner";
 
@@ -52,6 +53,8 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     reminderVal?.auto_reminders_enabled !== false
   );
   const [isSavingGeneral, setIsSavingGeneral] = React.useState(false);
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [isResettingDemo, setIsResettingDemo] = React.useState(false);
 
   React.useEffect(() => {
     if (initialSettings?.general?.value) {
@@ -63,24 +66,34 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     }
   }, [initialSettings]);
 
-  // Full JSON Database Backup Export
-  function handleExportJSON() {
-    const data = {
-      swimmers: DataStore.getSwimmers({ status: "all" }),
-      sessions: DataStore.getSessions({ status: "all" }),
-      reminders: DataStore.getReminderDeliveries(100),
-      exportedAt: new Date().toISOString(),
-      version: "2.0.0",
-    };
+  // Full JSON Database Backup Export from live server
+  async function handleExportJSON() {
+    setIsExporting(true);
+    try {
+      const res = await exportDatabaseBackupAction();
+      if (!res.success || !res.data) {
+        toast.error(res.error || "Failed to export database backup.");
+        return;
+      }
 
-    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data, null, 2))}`;
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", jsonString);
-    downloadAnchor.setAttribute("download", `swimtrack_backup_${new Date().toISOString().split("T")[0]}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    toast.success("Full JSON attendance and swimmer database backup downloaded.");
+      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+        JSON.stringify(res.data, null, 2)
+      )}`;
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", jsonString);
+      downloadAnchor.setAttribute(
+        "download",
+        `swimtrack_backup_${new Date().toISOString().split("T")[0]}.json`
+      );
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      toast.success("Full JSON database backup downloaded from live server.");
+    } catch {
+      toast.error("Failed to generate backup.");
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   async function handleSaveGeneral(e: React.FormEvent<HTMLFormElement>) {
@@ -102,11 +115,22 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     }
   }
 
-  function handleResetDemo() {
-    if (confirm("Reset local database to initial demonstration dataset?")) {
-      DataStore.resetToDemo();
-      toast.info("Database reset to demo state.");
-      window.location.reload();
+  async function handleResetDemo() {
+    if (confirm("Reset database to initial demonstration dataset?")) {
+      setIsResettingDemo(true);
+      try {
+        const res = await resetToDemoAction();
+        if (res.success) {
+          toast.info("Database reset to demo state.");
+          window.location.reload();
+        } else {
+          toast.error(res.error || "Failed to reset demo dataset.");
+        }
+      } catch {
+        toast.error("Failed to reset demo dataset.");
+      } finally {
+        setIsResettingDemo(false);
+      }
     }
   }
 
@@ -332,10 +356,11 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
           <button
             type="button"
             onClick={handleExportJSON}
-            className="px-4 py-2.5 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-foreground font-semibold text-xs flex items-center gap-1.5 shrink-0"
+            disabled={isExporting}
+            className="px-4 py-2.5 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-foreground font-semibold text-xs flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-opacity"
           >
             <Download className="w-4 h-4 text-aqua" />
-            <span>Export Full Backup</span>
+            <span>{isExporting ? "Exporting Backup..." : "Export Full Backup"}</span>
           </button>
         </div>
 
@@ -350,10 +375,11 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
           <button
             type="button"
             onClick={handleResetDemo}
-            className="px-3.5 py-2 rounded-xl border border-coral/30 bg-coral/10 hover:bg-coral/20 text-coral font-semibold text-xs flex items-center gap-1.5 shrink-0"
+            disabled={isResettingDemo}
+            className="px-3.5 py-2 rounded-xl border border-coral/30 bg-coral/10 hover:bg-coral/20 text-coral font-semibold text-xs flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-opacity"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>Reset Demo Store</span>
+            <span>{isResettingDemo ? "Resetting..." : "Reset Demo Store"}</span>
           </button>
         </div>
 

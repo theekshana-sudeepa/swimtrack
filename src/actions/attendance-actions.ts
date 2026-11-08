@@ -54,13 +54,9 @@ export async function markAllPresentAction(sessionId: string) {
 
     const count = DataStore.markAllPresent(sessionId, admin.id);
 
-    // Sync updated records to Supabase
-    const records = DataStore.getSessionAttendance(sessionId);
-    for (const r of records) {
-      if (r.status === "present") {
-        await SupabaseDB.upsertAttendance(r, admin.id, "Bulk marked present");
-      }
-    }
+    // Batch sync updated records to Supabase in a single transaction
+    const records = DataStore.getSessionAttendance(sessionId).filter((r) => r.status === "present");
+    await SupabaseDB.bulkUpsertAttendance(records, admin.id, "Bulk marked present");
 
     revalidatePath("/attendance");
     revalidatePath(`/sessions/${sessionId}`);
@@ -83,13 +79,9 @@ export async function markRemainingAbsentAction(sessionId: string) {
 
     const count = DataStore.markRemainingAbsent(sessionId, admin.id);
 
-    // Sync updated records to Supabase
-    const records = DataStore.getSessionAttendance(sessionId);
-    for (const r of records) {
-      if (r.status === "absent") {
-        await SupabaseDB.upsertAttendance(r, admin.id, "Bulk marked absent for remaining un-marked");
-      }
-    }
+    // Batch sync updated records to Supabase in a single transaction
+    const records = DataStore.getSessionAttendance(sessionId).filter((r) => r.status === "absent");
+    await SupabaseDB.bulkUpsertAttendance(records, admin.id, "Bulk marked absent for remaining un-marked");
 
     revalidatePath("/attendance");
     revalidatePath(`/sessions/${sessionId}`);
@@ -206,12 +198,12 @@ export async function syncAllActiveSwimmersToSessionAction(sessionId: string) {
     }
 
     const activeSwimmers = DataStore.getSwimmers({ status: "active" });
-    let enrolledCount = 0;
+    const records = DataStore.getSessionAttendance(sessionId);
+    const existingSwimmerIds = new Set(records.map((r) => r.swimmer_id));
+    const newRecords = [];
 
     for (const sw of activeSwimmers) {
-      const records = DataStore.getSessionAttendance(sessionId);
-      const alreadyEnrolled = records.some((r) => r.swimmer_id === sw.id);
-      if (!alreadyEnrolled) {
+      if (!existingSwimmerIds.has(sw.id)) {
         const result = DataStore.updateAttendanceStatus(
           sessionId,
           sw.id,
@@ -219,16 +211,19 @@ export async function syncAllActiveSwimmersToSessionAction(sessionId: string) {
           undefined,
           admin.id
         );
-        await SupabaseDB.upsertAttendance(result.record, admin.id, "Auto-enrolled into session");
-        enrolledCount++;
+        newRecords.push(result.record);
       }
+    }
+
+    if (newRecords.length > 0) {
+      await SupabaseDB.bulkUpsertAttendance(newRecords, admin.id, "Auto-enrolled into session");
     }
 
     revalidatePath("/attendance");
     revalidatePath(`/sessions/${sessionId}`);
     revalidatePath("/dashboard");
 
-    return { success: true, count: enrolledCount };
+    return { success: true, count: newRecords.length };
   } catch (err) {
     console.error("[syncAllActiveSwimmersToSessionAction] Error:", err);
     return {

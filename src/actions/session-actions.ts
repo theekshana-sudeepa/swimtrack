@@ -43,6 +43,7 @@ export async function createSessionAction(formData: FormData) {
 
 export async function createSeriesAction(formData: FormData) {
   await requireAdminSession();
+  await DataStore.syncFromSupabase();
 
   const title = sanitizeString(formData.get("title") as string, 120);
   const location = sanitizeString(formData.get("location") as string, 150);
@@ -67,22 +68,30 @@ export async function createSeriesAction(formData: FormData) {
     occurrences_to_generate: occurrences,
   });
 
+  // Find generated occurrences and batch persist to Supabase Postgres
+  const generatedSessions = DataStore.getSessions({ status: "all" }).filter(
+    (s) => s.series_id === result.series.id
+  );
+  await SupabaseDB.insertSeries(result.series, generatedSessions);
+
   revalidatePath("/sessions");
   revalidatePath("/calendar");
   revalidatePath("/dashboard");
+  revalidatePath("/attendance");
 
   return { success: true as const, ...result };
 }
 
 export async function updateSessionAction(id: string, formData: FormData) {
   await requireAdminSession();
+  await DataStore.syncFromSupabase();
 
-  const title = (formData.get("title") as string)?.trim();
+  const title = sanitizeString(formData.get("title") as string, 120);
   const date = (formData.get("date") as string)?.trim();
   const start_time = (formData.get("start_time") as string)?.trim();
   const end_time = (formData.get("end_time") as string)?.trim();
-  const location = (formData.get("location") as string)?.trim();
-  const notes = (formData.get("notes") as string)?.trim() || undefined;
+  const location = sanitizeString(formData.get("location") as string, 150);
+  const notes = sanitizeString(formData.get("notes") as string, 500) || undefined;
 
   const session = DataStore.updateSession(id, {
     title,
@@ -93,12 +102,32 @@ export async function updateSessionAction(id: string, formData: FormData) {
     notes,
   });
 
+  if (session) {
+    await SupabaseDB.upsertSession(session);
+  }
+
   revalidatePath("/sessions");
   revalidatePath(`/sessions/${id}`);
   revalidatePath("/calendar");
   revalidatePath("/dashboard");
+  revalidatePath("/attendance");
 
   return { success: true, session };
+}
+
+export async function deleteSessionAction(id: string) {
+  await requireAdminSession();
+  await DataStore.syncFromSupabase();
+
+  DataStore.deleteSession(id);
+  await SupabaseDB.deleteSession(id);
+
+  revalidatePath("/sessions");
+  revalidatePath("/calendar");
+  revalidatePath("/dashboard");
+  revalidatePath("/attendance");
+
+  return { success: true };
 }
 
 export async function cancelSessionAction(id: string) {

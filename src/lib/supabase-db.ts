@@ -6,6 +6,7 @@ import {
   AttendanceRecord,
   ReminderDelivery,
   AppSetting,
+  SessionSeries,
 } from "@/types/database";
 
 export const SupabaseDB = {
@@ -22,7 +23,7 @@ export const SupabaseDB = {
     if (!supabase) return false;
 
     try {
-      const [swimmersRes, sessionsRes, attendanceRes, settingsRes, remindersRes] =
+      const [swimmersRes, sessionsRes, attendanceRes, settingsRes, remindersRes, seriesRes] =
         await Promise.all([
           supabase
             .from("swimmers")
@@ -39,6 +40,10 @@ export const SupabaseDB = {
             .select("*")
             .order("created_at", { ascending: false })
             .limit(50),
+          supabase
+            .from("session_series")
+            .select("*")
+            .order("created_at", { ascending: false }),
         ]);
 
       // 1. Swimmers
@@ -114,6 +119,11 @@ export const SupabaseDB = {
       // 5. Reminders
       if (remindersRes.data && remindersRes.data.length > 0) {
         DataStore.hydrateReminders(remindersRes.data as ReminderDelivery[]);
+      }
+
+      // 6. Session Series
+      if (seriesRes.data && seriesRes.data.length > 0) {
+        DataStore.hydrateSeries(seriesRes.data as SessionSeries[]);
       }
 
       return true;
@@ -345,6 +355,76 @@ export const SupabaseDB = {
   },
 
   /**
+   * Bulk upserts attendance records in a single batch database transaction.
+   * Prevents N+1 HTTP waterfalls during bulk actions.
+   */
+  async bulkUpsertAttendance(
+    records: AttendanceRecord[],
+    actorId?: string,
+    changeReason?: string
+  ): Promise<void> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase || records.length === 0) return;
+    try {
+      const isValidUuid = (val?: string | null) =>
+        typeof val === "string" &&
+        val.length === 36 &&
+        val !== "00000000-0000-0000-0000-000000000000";
+
+      const now = new Date().toISOString();
+      const basePayloads = records.map((record) => {
+        const payload: Record<string, unknown> = {
+          session_id: record.session_id,
+          swimmer_id: record.swimmer_id,
+          status: record.status,
+          notes: record.notes || null,
+          marked_at: record.marked_at || now,
+          updated_at: now,
+        };
+        if (isValidUuid(actorId)) {
+          payload.marked_by = actorId;
+        }
+        if (isValidUuid(record.id)) {
+          payload.id = record.id;
+        }
+        if (record.checkin_method) {
+          payload.checkin_method = record.checkin_method;
+        }
+        if (record.checkin_distance != null) {
+          payload.checkin_distance = record.checkin_distance;
+        }
+        if (record.checkin_accuracy != null) {
+          payload.checkin_accuracy = record.checkin_accuracy;
+        }
+        return payload;
+      });
+
+      const { error } = await supabase
+        .from("attendance")
+        .upsert(basePayloads, { onConflict: "session_id,swimmer_id" });
+
+      if (error) {
+        console.error("[SupabaseDB] Error in bulkUpsertAttendance:", error);
+      }
+
+      // Batch insert audit log entries
+      const auditRows = records.map((r) => ({
+        session_id: r.session_id,
+        swimmer_id: r.swimmer_id,
+        old_status: "not_marked",
+        new_status: r.status,
+        change_reason: changeReason || r.notes || "Bulk attendance marked",
+        actor_id: isValidUuid(actorId) ? actorId : null,
+        created_at: now,
+      }));
+
+      await supabase.from("attendance_audit_log").insert(auditRows);
+    } catch (err) {
+      console.error("[SupabaseDB] Error bulk upserting attendance:", err);
+    }
+  },
+
+  /**
    * Upserts a swim session.
    */
   async upsertSession(session: SwimSession): Promise<void> {
@@ -369,6 +449,13 @@ export const SupabaseDB = {
         updated_at: new Date().toISOString(),
       };
 
+      if (isValidUuid(session.series_id)) {
+        payload.series_id = session.series_id;
+      }
+      if (session.latitude != null) payload.latitude = session.latitude;
+      if (session.longitude != null) payload.longitude = session.longitude;
+      if (session.geofence_radius != null) payload.geofence_radius = session.geofence_radius;
+
       if (session.finalized_at) {
         payload.finalized_at = session.finalized_at;
       }
@@ -382,6 +469,55 @@ export const SupabaseDB = {
       }
     } catch (err) {
       console.error("[SupabaseDB] Error upserting session:", err);
+    }
+  },
+
+  /**
+   * Persists a recurring session series and all its generated sessions into Supabase.
+   */
+  async insertSeries(series: SessionSeries, generatedSessions: SwimSession[]): Promise<void> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return;
+
+    try {
+      // 1. Insert session series
+      const seriesPayload: Record<string, unknown> = {
+        id: series.id,
+        title: series.title,
+        location: series.location,
+        recurrence_rule: series.recurrence_rule,
+        day_of_week: series.day_of_week,
+        start_time: series.start_time,
+        end_time: series.end_time,
+        start_date: series.start_date,
+        active: series.active,
+        updated_at: new Date().toISOString(),
+      };
+      if (series.end_date) {
+        seriesPayload.end_date = series.end_date;
+      }
+
+      await supabase.from("session_series").upsert(seriesPayload);
+
+      // 2. Batch upsert generated sessions
+      for (const sess of generatedSessions) {
+        await this.upsertSession(sess);
+      }
+    } catch (err) {
+      console.error("[SupabaseDB] Error inserting session series:", err);
+    }
+  },
+
+  /**
+   * Deletes a session from Supabase.
+   */
+  async deleteSession(id: string): Promise<void> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return;
+    try {
+      await supabase.from("swim_sessions").delete().eq("id", id);
+    } catch (err) {
+      console.error("[SupabaseDB] Error deleting session:", err);
     }
   },
 

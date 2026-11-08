@@ -27,12 +27,14 @@ import { toast } from "sonner";
 interface ReminderClientProps {
   sessions: SwimSession[];
   deliveries: ReminderDelivery[];
+  swimmers?: Swimmer[];
   initialSelectedSessionId?: string;
 }
 
 export function ReminderClient({
   sessions,
   deliveries,
+  swimmers = [],
   initialSelectedSessionId,
 }: ReminderClientProps) {
   const [selectedSessionId, setSelectedSessionId] = React.useState<string>(
@@ -49,26 +51,29 @@ export function ReminderClient({
   const [testEmailAddress, setTestEmailAddress] = React.useState("theekshanasudeepa4@gmail.com");
   const [testTemplate, setTestTemplate] = React.useState<"reminder" | "welcome" | "admin-alert">("admin-alert");
 
-  // Filter eligible swimmers for this session
-  // In our client we can derive from session participants if available or show count
-  const eligibleCount = 8; // Liam, Kavindi, Senuka, Dilshan, Amara, Ryan, Ananya, Maya
+  // Dynamically calculate eligible active swimmers with valid email and active consent
+  const eligibleSwimmers = React.useMemo(() => {
+    return (swimmers || []).filter(
+      (s) =>
+        s.status === "active" &&
+        s.email &&
+        s.email.includes("@") &&
+        s.reminder_preferences?.email_reminders_enabled !== false
+    );
+  }, [swimmers]);
+
+  const eligibleCount = eligibleSwimmers.length;
 
   async function handleSendReminders(isDryRun: boolean) {
     if (!selectedSession) return;
+    if (eligibleSwimmers.length === 0) {
+      toast.error("No active swimmers with valid email addresses found for reminders.");
+      return;
+    }
     setIsSending(true);
 
     try {
-      // Liam, Kavindi, Senuka, Dilshan, Amara, Ryan, Ananya, Maya IDs
-      const recipientIds = [
-        "11111111-1111-1111-1111-111111111101",
-        "11111111-1111-1111-1111-111111111102",
-        "11111111-1111-1111-1111-111111111103",
-        "11111111-1111-1111-1111-111111111104",
-        "11111111-1111-1111-1111-111111111105",
-        "11111111-1111-1111-1111-111111111106",
-        "11111111-1111-1111-1111-111111111107",
-        "11111111-1111-1111-1111-111111111109",
-      ];
+      const recipientIds = eligibleSwimmers.map((s) => s.id);
 
       const res = await sendManualSessionRemindersAction(
         selectedSession.id,
@@ -192,8 +197,21 @@ export function ReminderClient({
               </div>
               <div className="text-muted-foreground">{selectedSession.location}</div>
               <div className="text-aqua font-semibold pt-1">
-                &bull; 8 eligible squad swimmers with email consent
+                &bull; {eligibleCount} eligible squad {eligibleCount === 1 ? "swimmer" : "swimmers"} with email consent
               </div>
+              {eligibleSwimmers.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1.5 max-h-24 overflow-y-auto">
+                  {eligibleSwimmers.map((sw) => (
+                    <span
+                      key={sw.id}
+                      className="px-2 py-0.5 rounded-full text-[10px] bg-secondary/80 text-foreground border border-border flex items-center gap-1"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-seafoam" />
+                      <span>{sw.nickname || sw.full_name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
