@@ -18,16 +18,46 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { logoutAction } from "@/actions/auth-actions";
-import { wipeAllDataAction } from "@/actions/settings-actions";
+import {
+  wipeAllDataAction,
+  updateGeneralPreferencesAction,
+  updateReminderPreferencesSettingAction,
+} from "@/actions/settings-actions";
 import { DataStore } from "@/lib/data-store";
+import { AppSetting } from "@/types/database";
 import { toast } from "sonner";
 
-export function SettingsClient() {
-  const [groupName, setGroupName] = React.useState("SwimTrack Club");
-  const [defaultPool, setDefaultPool] = React.useState("Royal College Aquatic Complex, Colombo");
-  const [duration, setDuration] = React.useState("60");
+interface SettingsClientProps {
+  initialSettings?: Record<string, AppSetting>;
+}
+
+export function SettingsClient({ initialSettings }: SettingsClientProps) {
+  const generalVal = initialSettings?.general?.value as Record<string, unknown> | undefined;
+  const reminderVal = initialSettings?.reminders?.value as Record<string, unknown> | undefined;
+
+  const [groupName, setGroupName] = React.useState(
+    (generalVal?.group_name as string) || "SwimTrack Club"
+  );
+  const [defaultPool, setDefaultPool] = React.useState(
+    (generalVal?.default_pool as string) || "Royal College Aquatic Complex, Colombo"
+  );
+  const [duration, setDuration] = React.useState(
+    String(generalVal?.default_duration_minutes || "60")
+  );
   const [timezone] = React.useState("Asia/Colombo (UTC+05:30)");
-  const [autoReminders, setAutoReminders] = React.useState(true);
+  const [autoReminders, setAutoReminders] = React.useState(
+    reminderVal?.auto_reminders_enabled !== false
+  );
+  const [isSavingGeneral, setIsSavingGeneral] = React.useState(false);
+
+  React.useEffect(() => {
+    if (initialSettings?.general?.value) {
+      const g = initialSettings.general.value as Record<string, unknown>;
+      if (g.group_name) setGroupName(g.group_name as string);
+      if (g.default_pool !== undefined) setDefaultPool(g.default_pool as string);
+      if (g.default_duration_minutes) setDuration(String(g.default_duration_minutes));
+    }
+  }, [initialSettings]);
 
   // Full JSON Database Backup Export
   function handleExportJSON() {
@@ -49,9 +79,23 @@ export function SettingsClient() {
     toast.success("Full JSON attendance and swimmer database backup downloaded.");
   }
 
-  function handleSaveGeneral(e: React.FormEvent) {
+  async function handleSaveGeneral(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    toast.success("Club preferences updated successfully.");
+    setIsSavingGeneral(true);
+    const formData = new FormData(e.currentTarget);
+
+    try {
+      const res = await updateGeneralPreferencesAction(formData);
+      if (res.success) {
+        toast.success("Facility and club preferences updated successfully!");
+      } else {
+        toast.error(res.error || "Failed to update preferences.");
+      }
+    } catch {
+      toast.error("Failed to save preferences.");
+    } finally {
+      setIsSavingGeneral(false);
+    }
   }
 
   function handleResetDemo() {
@@ -137,6 +181,7 @@ export function SettingsClient() {
             </label>
             <input
               type="text"
+              name="group_name"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
@@ -149,8 +194,10 @@ export function SettingsClient() {
             </label>
             <input
               type="text"
+              name="default_pool"
               value={defaultPool}
               onChange={(e) => setDefaultPool(e.target.value)}
+              placeholder="e.g. Royal College Aquatic Complex, Colombo"
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
             />
           </div>
@@ -161,6 +208,7 @@ export function SettingsClient() {
             </label>
             <input
               type="number"
+              name="default_duration_minutes"
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
@@ -183,9 +231,17 @@ export function SettingsClient() {
         <div className="pt-2">
           <button
             type="submit"
-            className="px-4 py-2 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 font-bold text-xs shadow-sm transition-all"
+            disabled={isSavingGeneral}
+            className="px-5 py-2.5 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 font-bold text-xs shadow-sm transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
           >
-            Save Preferences
+            {isSavingGeneral ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-ocean-950 border-t-transparent rounded-full animate-spin" />
+                <span>Saving Preferences...</span>
+              </>
+            ) : (
+              <span>Save Preferences</span>
+            )}
           </button>
         </div>
       </form>

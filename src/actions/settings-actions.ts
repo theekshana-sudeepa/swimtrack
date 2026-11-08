@@ -46,3 +46,100 @@ export async function wipeAllDataAction(): Promise<{ success: boolean; error?: s
   }
 }
 
+/**
+ * Updates General Preferences (Facility / Pool, Club Name, Duration).
+ * Persists to DataStore and Supabase app_settings.
+ */
+export async function updateGeneralPreferencesAction(formData: FormData): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  await requireAdminSession();
+
+  const group_name = (formData.get("group_name") as string)?.trim() || "SwimTrack Club";
+  const default_pool = (formData.get("default_pool") as string)?.trim() || "";
+  const default_duration_minutes = parseInt(
+    (formData.get("default_duration_minutes") as string) || "60",
+    10
+  );
+
+  try {
+    DataStore.updateAppSetting("general", {
+      group_name,
+      default_pool,
+      default_duration_minutes,
+      timezone: "Asia/Colombo",
+    });
+
+    const supabase = getSupabaseAdminClient();
+    if (supabase) {
+      await supabase.from("app_settings").upsert({
+        key: "general",
+        value: {
+          group_name,
+          default_pool,
+          default_duration_minutes,
+          timezone: "Asia/Colombo",
+        },
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    revalidatePath("/settings");
+    revalidatePath("/dashboard");
+    revalidatePath("/sessions");
+
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Failed to update preferences";
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Updates Reminder Automation Preferences.
+ * Persists to DataStore and Supabase app_settings.
+ */
+export async function updateReminderPreferencesSettingAction(formData: FormData): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  await requireAdminSession();
+
+  const auto_reminders_enabled = formData.get("auto_reminders_enabled") === "on";
+  const reminder_hours_before = parseInt(
+    (formData.get("reminder_hours_before") as string) || "24",
+    10
+  );
+  const default_message = (formData.get("default_message") as string)?.trim() || "";
+
+  try {
+    DataStore.updateAppSetting("reminders", {
+      auto_reminders_enabled,
+      reminder_hours_before,
+      default_message,
+    });
+
+    const supabase = getSupabaseAdminClient();
+    if (supabase) {
+      await supabase.from("app_settings").upsert({
+        key: "reminders",
+        value: {
+          auto_reminders_enabled,
+          reminder_hours_before,
+          default_message,
+        },
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    revalidatePath("/settings");
+    revalidatePath("/reminders");
+
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Failed to update reminder settings";
+    return { success: false, error: errorMsg };
+  }
+}
+
