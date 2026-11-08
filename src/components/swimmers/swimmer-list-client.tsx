@@ -16,6 +16,9 @@ import {
   ChevronRight,
   X,
   Check,
+  Share2,
+  Copy,
+  CheckCheck,
 } from "lucide-react";
 import { Swimmer } from "@/types/database";
 import { getSwimmerSquadRank } from "@/lib/squad-ranks";
@@ -35,6 +38,9 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
 
   // Modal State
   const [showAddModal, setShowAddModal] = React.useState(false);
+  const [showInviteModal, setShowInviteModal] = React.useState(false);
+  const [copiedLink, setCopiedLink] = React.useState(false);
+  const [copiedMsg, setCopiedMsg] = React.useState(false);
   const [editingSwimmer, setEditingSwimmer] = React.useState<Swimmer | null>(null);
 
   React.useEffect(() => {
@@ -134,6 +140,15 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowInviteModal(true)}
+            className="px-3.5 py-2 rounded-xl border border-seafoam/40 bg-seafoam/10 hover:bg-seafoam/20 text-seafoam text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Share Join Link</span>
+          </button>
+
           <button
             type="button"
             onClick={exportCSV}
@@ -595,6 +610,109 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Share Join Link Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Share2 className="w-5 h-5 text-seafoam" />
+                <h3 className="text-base font-bold text-foreground">
+                  Share Squad Join Link 🏊
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowInviteModal(false);
+                  setCopiedLink(false);
+                  setCopiedMsg(false);
+                }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Send this link to your friends or drop it in your WhatsApp / Telegram group. Friends can
+              self-register their name and email without needing to create an account or password.
+            </p>
+
+            {/* Direct Link Section */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-foreground">Direct Join URL</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={
+                    typeof window !== "undefined"
+                      ? `${window.location.origin}/join`
+                      : "https://your-swimtrack.vercel.app/join"
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-border bg-secondary/40 text-foreground font-mono select-all focus:outline-none focus:ring-1 focus:ring-aqua"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/join`;
+                    navigator.clipboard.writeText(url);
+                    setCopiedLink(true);
+                    toast.success("Join URL copied to clipboard!");
+                    setTimeout(() => setCopiedLink(false), 2500);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-secondary hover:bg-secondary/80 text-foreground text-xs font-bold shrink-0 flex items-center gap-1.5 transition-all"
+                >
+                  {copiedLink ? <CheckCheck className="w-3.5 h-3.5 text-seafoam" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedLink ? "Copied" : "Copy"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* WhatsApp Ready Message */}
+            <div className="space-y-1.5 pt-1">
+              <label className="text-xs font-bold text-foreground">WhatsApp / Group Chat Message</label>
+              <div className="p-3.5 rounded-xl border border-border bg-secondary/30 text-xs text-muted-foreground space-y-2">
+                <p className="font-mono text-[11px] text-foreground leading-relaxed">
+                  🏊 Hey! Join our swimming squad roster on SwimTrack so you get automated session alerts,
+                  track your attendance, and see your squad rank:
+                  <br />
+                  <span className="text-aqua underline">
+                    {typeof window !== "undefined"
+                      ? `${window.location.origin}/join`
+                      : "https://your-swimtrack.vercel.app/join"}
+                  </span>
+                </p>
+                <div className="flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const msg = `🏊 Hey! Join our swimming squad roster on SwimTrack so you get automated session alerts, track your attendance, and see your squad rank: ${window.location.origin}/join`;
+                      navigator.clipboard.writeText(msg);
+                      setCopiedMsg(true);
+                      toast.success("WhatsApp message copied to clipboard!");
+                      setTimeout(() => setCopiedMsg(false), 2500);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-seafoam text-ocean-950 text-xs font-bold flex items-center gap-1.5 hover:bg-seafoam/90 transition-all shadow-sm"
+                  >
+                    {copiedMsg ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedMsg ? "Message Copied!" : "Copy WhatsApp Message"}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Note on Welcome Pack */}
+            <div className="p-3 rounded-xl bg-ocean-900 border border-aqua/30 text-[11px] text-muted-foreground">
+              <p className="text-aqua font-bold mb-0.5">✨ Automatic Welcome Pack</p>
+              When a friend joins, they automatically receive a branded email welcome pack confirming their
+              registration and initial &quot;Eager Cadet&quot; persona.
+            </div>
           </div>
         </div>
       )}

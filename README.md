@@ -10,7 +10,7 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38B2AC?style=flat-square&logo=tailwind-css)](https://tailwindcss.com/)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat-square&logo=supabase)](https://supabase.com/)
 [![Resend](https://img.shields.io/badge/Resend-Email_API-black?style=flat-square&logo=resend)](https://resend.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-crimson.svg?style=flat-square)](LICENSE)
 
 *A personal, non-commercial web platform designed for recording squad swimming attendance, managing recurring pool practices, dispatching friendly email reminders, and visualizing participation streaks.*
 
@@ -77,6 +77,7 @@ All screenshots below represent the real application running with fictional demo
   - Finalize / Reopen session workflow with warnings for unmarked participants.
 
 - **Swimmer & Roster Management**:
+  - **Frictionless Squad Self-Join (`/join`)**: Friends can join the roster via a shareable WhatsApp invite link with zero passwords, immediately receiving an automated welcome pack and initial "Eager Cadet" persona.
   - Roster tracking with optional nicknames, emails, and phone numbers.
   - Email addresses are strictly optional; friends can participate without receiving emails.
   - Individual swimmer profiles with initials avatars, consistency streaks, and milestone badges.
@@ -311,7 +312,10 @@ npm run build
 
 ---
 
-## 📄 License
+## 📄 License & Non-Commercial Terms
 
-This project is licensed under the [MIT License](LICENSE).
+SwimTrack is open-source software licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+- **Permitted**: You are welcome to inspect, study, fork, modify, and self-host SwimTrack for personal, non-commercial use with your friends, family, and amateur swimming squads.
+- **Strictly Prohibited**: Any commercial use, resale, paid SaaS hosting, charging membership fees, requiring paid subscriptions, or monetizing attendance tracking in any business or sports enterprise is strictly prohibited.
 

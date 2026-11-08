@@ -3,6 +3,7 @@ import * as React from "react";
 import { Swimmer, SwimSession } from "@/types/database";
 import { DataStore } from "./data-store";
 import UpcomingSessionEmail from "@/emails/upcoming-session";
+import WelcomeSwimmerEmail from "@/emails/welcome-swimmer";
 
 function getResendClient(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
@@ -179,5 +180,56 @@ export async function sendSessionReminder({
       status: "failed",
       error: errorMsg,
     };
+  }
+}
+
+export async function sendWelcomeEmail({
+  swimmer,
+}: {
+  swimmer: Swimmer;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (!swimmer.email || !swimmer.email.includes("@")) {
+    return { success: false, error: "No valid email address." };
+  }
+
+  const resend = getResendClient();
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmer.reminder_preferences?.opt_out_token || "general"}`;
+
+  if (!resend) {
+    return {
+      success: true,
+      messageId: `sim_welcome_${Date.now()}`,
+    };
+  }
+
+  try {
+    const emailElement = React.createElement(WelcomeSwimmerEmail, {
+      swimmerName: swimmer.full_name,
+      nickname: swimmer.nickname || undefined,
+      optOutUrl,
+    });
+
+    const { data, error } = await resend.emails.send(
+      {
+        from: fromEmail,
+        to: [swimmer.email],
+        subject: `🏊 Welcome to the SwimTrack Squad, ${swimmer.nickname || swimmer.full_name}!`,
+        react: emailElement,
+      },
+      {
+        idempotencyKey: `swimtrack/welcome/${swimmer.id}`,
+      }
+    );
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, messageId: data?.id };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Failed to dispatch welcome email";
+    return { success: false, error: errorMsg };
   }
 }
