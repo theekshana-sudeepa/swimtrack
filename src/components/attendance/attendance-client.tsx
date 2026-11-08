@@ -43,6 +43,16 @@ import {
 } from "@/actions/attendance-actions";
 import { finalizeSessionAction, reopenSessionAction } from "@/actions/session-actions";
 import { formatTime, getInitials, cn } from "@/lib/utils";
+import {
+  calculateMinutesLate,
+  calculateArrivalTime,
+  getCurrentColomboTime,
+  formatLateNote,
+  parseLateInfo,
+  minutesToTime12,
+  minutesToTime24,
+  parseTimeToMinutes,
+} from "@/lib/attendance-calculator";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 
@@ -81,6 +91,93 @@ export function AttendanceClient({
     currentNote: string;
   } | null>(null);
   const [noteInput, setNoteInput] = React.useState("");
+
+  // Late Arrival Modal State
+  const [activeLateRecord, setActiveLateRecord] = React.useState<{
+    swimmerId: string;
+    swimmerName: string;
+    nickname?: string | null;
+    currentNotes?: string | null;
+  } | null>(null);
+  const [lateArrivalTime, setLateArrivalTime] = React.useState("15:15");
+  const [lateMinutes, setLateMinutes] = React.useState(15);
+  const [lateReason, setLateReason] = React.useState("");
+
+  function openLateModal(
+    swimmerId: string,
+    swimmerName: string,
+    nickname?: string | null,
+    existingNotes?: string | null
+  ) {
+    const parsed = parseLateInfo(existingNotes);
+    if (parsed && parsed.minutesLate > 0) {
+      setLateMinutes(parsed.minutesLate);
+      if (parsed.arrivalTime) {
+        setLateArrivalTime(minutesToTime24(parseTimeToMinutes(parsed.arrivalTime)));
+      } else {
+        const computed = calculateArrivalTime(session.start_time, parsed.minutesLate);
+        setLateArrivalTime(computed.time24);
+      }
+      setLateReason(parsed.reason || "");
+    } else {
+      const colombo = getCurrentColomboTime();
+      const minsDiff = calculateMinutesLate(session.start_time, colombo.time24);
+      if (minsDiff > 0 && minsDiff <= 180) {
+        setLateMinutes(minsDiff);
+        setLateArrivalTime(colombo.time24);
+      } else {
+        setLateMinutes(15);
+        const computed = calculateArrivalTime(session.start_time, 15);
+        setLateArrivalTime(computed.time24);
+      }
+      setLateReason(parsed?.reason || "");
+    }
+
+    setActiveLateRecord({
+      swimmerId,
+      swimmerName,
+      nickname,
+      currentNotes: existingNotes,
+    });
+  }
+
+  function handleSelectPreset(mins: number) {
+    setLateMinutes(mins);
+    const computed = calculateArrivalTime(session.start_time, mins);
+    setLateArrivalTime(computed.time24);
+  }
+
+  function handleArrivedNow() {
+    const colombo = getCurrentColomboTime();
+    const mins = Math.max(1, calculateMinutesLate(session.start_time, colombo.time24));
+    setLateMinutes(mins);
+    setLateArrivalTime(colombo.time24);
+  }
+
+  function handleArrivalTimeChange(time24: string) {
+    setLateArrivalTime(time24);
+    const mins = calculateMinutesLate(session.start_time, time24);
+    setLateMinutes(Math.max(1, mins));
+  }
+
+  function handleLateMinutesChange(mins: number) {
+    const safeMins = Math.max(1, Math.min(360, mins));
+    setLateMinutes(safeMins);
+    const computed = calculateArrivalTime(session.start_time, safeMins);
+    setLateArrivalTime(computed.time24);
+  }
+
+  async function handleConfirmLateArrival() {
+    if (!activeLateRecord) return;
+    const timeMinutes = parseTimeToMinutes(lateArrivalTime);
+    const arr12 = minutesToTime12(timeMinutes);
+    const note = formatLateNote(arr12, lateMinutes, lateReason);
+    await handleStatusChange(activeLateRecord.swimmerId, "late", note);
+    toast.success(
+      `${activeLateRecord.swimmerName} marked Late (${lateMinutes}m late • Arrived ${arr12})`
+    );
+    setActiveLateRecord(null);
+  }
 
   // Add Swimmer Modal State
   const [showAddModal, setShowAddModal] = React.useState(false);
@@ -368,7 +465,16 @@ export function AttendanceClient({
 
     if (lateList.length > 0) {
       lines.push(`⏰ *Late Arrival Squad:*`);
-      lateList.forEach((r) => lines.push(`• ${r.swimmer?.full_name || "Swimmer"}`));
+      lateList.forEach((r) => {
+        const info = parseLateInfo(r.notes);
+        let detail = "";
+        if (info && info.minutesLate > 0) {
+          detail = ` (${info.minutesLate}m late${info.arrivalTime ? ` • Arrived ${info.arrivalTime}` : ""}${info.reason ? ` - ${info.reason}` : ""})`;
+        } else if (r.notes) {
+          detail = ` (${r.notes})`;
+        }
+        lines.push(`• ${r.swimmer?.full_name || "Swimmer"}${detail}`);
+      });
       lines.push(``);
     }
 
@@ -428,6 +534,8 @@ export function AttendanceClient({
         target.tagName === "TEXTAREA" ||
         target.isContentEditable ||
         activeNoteSwimmer !== null ||
+        activeLateRecord !== null ||
+        showAddModal ||
         showFinalizeWarning
       ) {
         return;
@@ -452,7 +560,12 @@ export function AttendanceClient({
         handleStatusChange(currentRecord.swimmer_id, "absent");
       } else if (key === "l") {
         e.preventDefault();
-        handleStatusChange(currentRecord.swimmer_id, "late");
+        openLateModal(
+          currentRecord.swimmer_id,
+          currentRecord.swimmer?.full_name || "Swimmer",
+          currentRecord.swimmer?.nickname,
+          currentRecord.notes
+        );
       } else if (key === "e") {
         e.preventDefault();
         handleStatusChange(currentRecord.swimmer_id, "excused");
@@ -468,7 +581,7 @@ export function AttendanceClient({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusedIndex, filteredRecords, activeNoteSwimmer, showFinalizeWarning, lastAction]);
+  }, [focusedIndex, filteredRecords, activeNoteSwimmer, activeLateRecord, showAddModal, showFinalizeWarning, lastAction]);
 
   return (
     <div className="space-y-6">
@@ -690,6 +803,7 @@ export function AttendanceClient({
             const isPending = pendingIds.has(record.swimmer_id);
             const isFocused = index === focusedIndex;
             const rank = getSwimmerSquadRank(swimmer?.attendance_stats);
+            const lateInfo = record.status === "late" ? parseLateInfo(record.notes) : null;
 
             return (
               <div
@@ -729,11 +843,36 @@ export function AttendanceClient({
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
                       <span>{swimmer?.attendance_stats?.rate || 0}% overall</span>
                       <span>&bull;</span>
                       <span className="text-[11px] font-semibold text-muted-foreground">{rank.pollaTag}</span>
-                      {record.notes && (
+                      {record.status === "late" && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openLateModal(
+                              record.swimmer_id,
+                              swimmer?.full_name || "Swimmer",
+                              swimmer?.nickname,
+                              record.notes
+                            );
+                          }}
+                          title="Click to edit late arrival time"
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40 hover:bg-amber-400/30 transition-all cursor-pointer shadow-xs"
+                        >
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          <span>{lateInfo?.minutesLate ? `${lateInfo.minutesLate}m late` : "Late"}</span>
+                          {lateInfo?.arrivalTime && (
+                            <span className="opacity-90 font-mono text-[10px]">({lateInfo.arrivalTime})</span>
+                          )}
+                          {lateInfo?.reason && (
+                            <span className="italic opacity-80 max-w-[120px] truncate">&bull; {lateInfo.reason}</span>
+                          )}
+                        </button>
+                      )}
+                      {record.notes && record.status !== "late" && (
                         <span className="text-aqua italic truncate max-w-[180px]">
                           &bull; &ldquo;{record.notes}&rdquo;
                         </span>
@@ -762,7 +901,14 @@ export function AttendanceClient({
                   {/* Late Button */}
                   <button
                     type="button"
-                    onClick={() => handleStatusChange(record.swimmer_id, "late")}
+                    onClick={() =>
+                      openLateModal(
+                        record.swimmer_id,
+                        swimmer?.full_name || "Swimmer",
+                        swimmer?.nickname,
+                        record.notes
+                      )
+                    }
                     className={cn(
                       "flex-1 sm:flex-initial min-w-[65px] sm:min-w-[75px] h-10 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-95",
                       record.status === "late"
@@ -771,7 +917,11 @@ export function AttendanceClient({
                     )}
                   >
                     <Clock className="w-4 h-4 stroke-[2.5]" />
-                    <span>Late</span>
+                    <span>
+                      {record.status === "late" && lateInfo?.minutesLate
+                        ? `${lateInfo.minutesLate}m Late`
+                        : "Late"}
+                    </span>
                   </button>
 
                   {/* Absent Button */}
@@ -1223,6 +1373,172 @@ export function AttendanceClient({
               >
                 <Copy className="w-3.5 h-3.5" />
                 <span>Copy WhatsApp Recap</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Late Arrival Poolside Modal */}
+      {activeLateRecord && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-3xl border border-amber-400/40 bg-card p-6 shadow-2xl space-y-5">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-400/10 text-amber-400 border border-amber-400/30 flex items-center justify-center">
+                  <Clock className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Record Late Arrival
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {activeLateRecord.swimmerName} {activeLateRecord.nickname ? `(${activeLateRecord.nickname})` : ""}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveLateRecord(null)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Session Context Banner */}
+            <div className="p-3 rounded-2xl bg-secondary/40 border border-border/80 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-medium">Session Start Time:</span>
+              <span className="font-bold text-foreground font-mono bg-secondary px-2.5 py-1 rounded-lg border border-border">
+                {formatTime(session.start_time)} ({session.start_time.slice(0, 5)})
+              </span>
+            </div>
+
+            {/* Fast 1-Tap Presets */}
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-2">
+                ⚡ Quick Presets (One Tap)
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {[5, 10, 15, 20, 30, 45].map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => handleSelectPreset(mins)}
+                    className={cn(
+                      "py-2 px-1 rounded-xl text-xs font-bold border transition-all text-center",
+                      lateMinutes === mins
+                        ? "bg-amber-400 text-ocean-950 border-amber-400 shadow-md ring-2 ring-amber-400/30 font-black"
+                        : "bg-secondary/40 hover:bg-secondary border-border text-foreground"
+                    )}
+                  >
+                    +{mins}m late
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleArrivedNow}
+                  className="col-span-3 sm:col-span-2 py-2 px-2 rounded-xl text-xs font-bold border border-aqua/30 bg-aqua/10 hover:bg-aqua/20 text-aqua transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Arrived Just Now</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Synchronized Arrival Time & Minutes Late Stepper */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1.5">
+                  Arrival Time (24h)
+                </label>
+                <input
+                  type="time"
+                  value={lateArrivalTime}
+                  onChange={(e) => handleArrivalTimeChange(e.target.value)}
+                  className="w-full px-3 py-2 text-sm font-mono font-bold rounded-xl border border-border bg-secondary/50 text-foreground focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1.5">
+                  Minutes Late
+                </label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleLateMinutesChange(Math.max(1, lateMinutes - 5))}
+                    className="h-10 w-9 rounded-xl border border-border bg-secondary/50 hover:bg-secondary font-bold text-sm text-foreground flex items-center justify-center active:scale-95"
+                  >
+                    -5
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={360}
+                    value={lateMinutes}
+                    onChange={(e) => handleLateMinutesChange(parseInt(e.target.value, 10) || 1)}
+                    className="w-full h-10 px-2 text-center text-sm font-bold font-mono rounded-xl border border-border bg-secondary/50 text-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleLateMinutesChange(lateMinutes + 5)}
+                    className="h-10 w-9 rounded-xl border border-border bg-secondary/50 hover:bg-secondary font-bold text-sm text-foreground flex items-center justify-center active:scale-95"
+                  >
+                    +5
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Common Reason Chips + Optional Input */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
+                Reason / Coach Note (Optional)
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {["Traffic / Bus", "School / Tuition", "Kit / Goggles", "Rain / Weather", "Family"].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => setLateReason(lateReason === chip ? "" : chip)}
+                    className={cn(
+                      "text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-all",
+                      lateReason === chip
+                        ? "bg-amber-400/20 text-amber-300 border-amber-400/40"
+                        : "bg-secondary/40 text-muted-foreground hover:text-foreground border-border"
+                    )}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={lateReason}
+                onChange={(e) => setLateReason(e.target.value)}
+                placeholder="e.g. Traffic near clock tower, delayed bus..."
+                className="w-full px-3 py-2 text-xs rounded-xl border border-border bg-secondary/40 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-amber-400"
+              />
+            </div>
+
+            {/* Confirmation Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2 border-t border-border/80">
+              <button
+                type="button"
+                onClick={() => setActiveLateRecord(null)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLateArrival}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-ocean-950 text-xs font-black flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95"
+              >
+                <Clock className="w-4 h-4 stroke-[2.5]" />
+                <span>Confirm: {lateMinutes}m Late ({minutesToTime12(parseTimeToMinutes(lateArrivalTime))})</span>
               </button>
             </div>
           </div>

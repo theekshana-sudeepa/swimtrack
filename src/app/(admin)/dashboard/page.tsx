@@ -29,6 +29,7 @@ export default async function DashboardPage() {
   const scheduledSessions = DataStore.getSessions({ status: "scheduled" }).slice(0, 3);
   const activeSwimmers = DataStore.getSwimmers({ status: "active" });
   const recentReminders = DataStore.getReminderDeliveries(5);
+  const recentLateArrivals = DataStore.getRecentLateArrivals(6);
 
   // Top streak swimmers (friendly milestones)
   const topStreaks = [...activeSwimmers]
@@ -188,8 +189,14 @@ export default async function DashboardPage() {
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 text-2xl font-extrabold text-foreground">
-            {stats.overallAttendanceRate}%
+          <div className="mt-3 text-2xl font-extrabold text-foreground flex items-baseline justify-between gap-1 flex-wrap">
+            <span>{stats.overallAttendanceRate}%</span>
+            {stats.totalLateCount > 0 && (
+              <span className="text-[11px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                <span>{stats.totalLateCount} Late ({stats.avgMinutesLate}m avg)</span>
+              </span>
+            )}
           </div>
           <div className="mt-1 text-[11px] text-muted-foreground">
             (Present + Late) / Eligible Swims
@@ -266,7 +273,11 @@ export default async function DashboardPage() {
                             {rate}% Attendance
                           </div>
                           <div className="text-[10px] text-muted-foreground">
-                            {summary?.present || 0} Present &bull; {summary?.late || 0} Late &bull; {summary?.absent || 0} Absent
+                            {summary?.present || 0} Present &bull;{" "}
+                            <span className={summary?.late ? "text-amber-400 font-bold" : ""}>
+                              {summary?.late || 0} Late
+                            </span>{" "}
+                            &bull; {summary?.absent || 0} Absent
                           </div>
                         </div>
 
@@ -383,6 +394,78 @@ export default async function DashboardPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Squad Punctuality & Late Arrivals Tracker */}
+          <div className="p-6 rounded-2xl border border-border bg-card">
+            <div className="flex items-center justify-between pb-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-400" />
+                <h3 className="font-bold text-sm text-foreground">
+                  Late Arrivals &amp; Punctuality
+                </h3>
+              </div>
+              <Link href="/attendance" className="text-xs text-aqua hover:underline font-semibold">
+                Register
+              </Link>
+            </div>
+
+            <div className="mt-4 space-y-2.5">
+              {recentLateArrivals.length > 0 ? (
+                recentLateArrivals.slice(0, 4).map((late) => (
+                  <div
+                    key={late.id}
+                    className="p-3 rounded-xl border border-amber-400/20 bg-amber-400/5 flex items-center justify-between gap-3 hover:border-amber-400/40 transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-ocean-900 text-amber-400 border border-amber-400/30 flex items-center justify-center font-bold text-xs shrink-0">
+                        {getInitials(late.swimmerName)}
+                      </div>
+                      <div className="truncate">
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-xs font-bold text-foreground truncate">
+                            {late.swimmerName}
+                          </h4>
+                          {late.nickname && (
+                            <span className="text-[10px] text-muted-foreground font-normal">
+                              ({late.nickname})
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground truncate">
+                          {late.sessionTitle} &bull; {late.sessionDate}
+                        </div>
+                        {late.reason && (
+                          <div className="text-[10px] text-amber-300/90 italic truncate">
+                            &ldquo;{late.reason}&rdquo;
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[11px] font-black">
+                        <Clock className="w-3 h-3 text-amber-400 stroke-[2.5]" />
+                        <span>+{late.minutesLate}m</span>
+                      </div>
+                      {late.arrivalTime && (
+                        <div className="text-[9px] text-muted-foreground font-mono mt-0.5">
+                          {late.arrivalTime}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-6 text-center text-xs text-muted-foreground bg-secondary/20 rounded-xl border border-dashed border-border/70 p-4">
+                  <span className="text-base block mb-1">🎯</span>
+                  <span className="font-semibold text-foreground">100% On-Time Swimmers</span>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    All squad swimmers arrived on time in recent sessions!
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

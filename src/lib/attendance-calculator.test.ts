@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { calculateAttendanceRate, calculateStreaks } from "./attendance-calculator";
+import {
+  calculateAttendanceRate,
+  calculateStreaks,
+  parseTimeToMinutes,
+  minutesToTime24,
+  minutesToTime12,
+  calculateMinutesLate,
+  calculateArrivalTime,
+  formatLateNote,
+  parseLateInfo,
+} from "./attendance-calculator";
 import { AttendanceStatus } from "@/types/database";
 
 describe("Attendance Calculator", () => {
@@ -65,5 +75,67 @@ describe("Attendance Calculator", () => {
     expect(streaks.longestStreak).toBe(3);
     expect(streaks.currentStreak).toBe(2);
   });
+
+  describe("Late Arrival Calculations and Parsing", () => {
+    it("converts 12h and 24h time strings to minutes from midnight", () => {
+      expect(parseTimeToMinutes("06:30")).toBe(390);
+      expect(parseTimeToMinutes("15:00")).toBe(900);
+      expect(parseTimeToMinutes("15:30:00")).toBe(930);
+      expect(parseTimeToMinutes("03:15 PM")).toBe(915);
+      expect(parseTimeToMinutes("3:15 pm")).toBe(915);
+      expect(parseTimeToMinutes("12:00 AM")).toBe(0);
+      expect(parseTimeToMinutes("12:30 AM")).toBe(30);
+      expect(parseTimeToMinutes("12:00 PM")).toBe(720);
+    });
+
+    it("formats minutes to 24h and 12h strings", () => {
+      expect(minutesToTime24(915)).toBe("15:15");
+      expect(minutesToTime12(915)).toBe("03:15 PM");
+      expect(minutesToTime12(390)).toBe("06:30 AM");
+      expect(minutesToTime12(0)).toBe("12:00 AM");
+      expect(minutesToTime12(720)).toBe("12:00 PM");
+    });
+
+    it("calculates minutes late accurately between start time and arrival", () => {
+      expect(calculateMinutesLate("15:00", "15:20")).toBe(20);
+      expect(calculateMinutesLate("03:00 PM", "03:15 PM")).toBe(15);
+      expect(calculateMinutesLate("18:30:00", "18:45")).toBe(15);
+      // On time or early
+      expect(calculateMinutesLate("15:00", "14:55")).toBe(0);
+      expect(calculateMinutesLate("15:00", "15:00")).toBe(0);
+    });
+
+    it("computes arrival time from session start and late minutes", () => {
+      const result = calculateArrivalTime("15:00", 25);
+      expect(result.time24).toBe("15:25");
+      expect(result.time12).toBe("03:25 PM");
+    });
+
+    it("formats standardized late notes with and without reasons", () => {
+      expect(formatLateNote("03:15 PM", 15)).toBe("Arrived at 03:15 PM (15m late)");
+      expect(formatLateNote("03:20 PM", 20, "Traffic jam near clock tower")).toBe(
+        "Arrived at 03:20 PM (20m late) — Traffic jam near clock tower"
+      );
+    });
+
+    it("parses late notes robustly", () => {
+      const parsed1 = parseLateInfo("Arrived at 03:15 PM (15m late)");
+      expect(parsed1?.arrivalTime).toBe("03:15 PM");
+      expect(parsed1?.minutesLate).toBe(15);
+      expect(parsed1?.reason).toBeNull();
+
+      const parsed2 = parseLateInfo("Arrived at 15:30 (30m late) — School bus delay");
+      expect(parsed2?.arrivalTime).toBe("15:30");
+      expect(parsed2?.minutesLate).toBe(30);
+      expect(parsed2?.reason).toBe("School bus delay");
+
+      const parsed3 = parseLateInfo("15m late");
+      expect(parsed3?.minutesLate).toBe(15);
+
+      const parsed4 = parseLateInfo("20 mins late");
+      expect(parsed4?.minutesLate).toBe(20);
+    });
+  });
 });
+
 

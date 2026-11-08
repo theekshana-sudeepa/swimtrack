@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { DataStore } from "@/lib/data-store";
 import { formatTime, getInitials, cn } from "@/lib/utils";
+import { parseLateInfo } from "@/lib/attendance-calculator";
 
 export const dynamic = "force-dynamic";
 
@@ -201,22 +202,34 @@ export default async function SessionDetailPage({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border",
-                      record.status === "present"
-                        ? "bg-seafoam/10 text-seafoam border-seafoam/30"
-                        : record.status === "late"
-                        ? "bg-amber-400/10 text-amber-400 border-amber-400/30"
-                        : record.status === "absent"
-                        ? "bg-coral/10 text-coral border-coral/30"
-                        : record.status === "excused"
-                        ? "bg-sky-400/10 text-sky-400 border-sky-400/30"
-                        : "bg-secondary text-muted-foreground border-border"
-                    )}
-                  >
-                    {record.status}
-                  </span>
+                  {(() => {
+                    const lateInfo = record.status === "late" ? parseLateInfo(record.notes) : null;
+                    return (
+                      <span
+                        className={cn(
+                          "text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1",
+                          record.status === "present"
+                            ? "bg-seafoam/10 text-seafoam border-seafoam/30"
+                            : record.status === "late"
+                            ? "bg-amber-400/10 text-amber-400 border-amber-400/30"
+                            : record.status === "absent"
+                            ? "bg-coral/10 text-coral border-coral/30"
+                            : record.status === "excused"
+                            ? "bg-sky-400/10 text-sky-400 border-sky-400/30"
+                            : "bg-secondary text-muted-foreground border-border"
+                        )}
+                      >
+                        {record.status === "late" && lateInfo?.minutesLate ? (
+                          <>
+                            <Clock className="w-3 h-3 text-amber-400 stroke-[2.5]" />
+                            <span>Late (+{lateInfo.minutesLate}m)</span>
+                          </>
+                        ) : (
+                          record.status
+                        )}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             );

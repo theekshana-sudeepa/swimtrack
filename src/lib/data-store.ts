@@ -18,7 +18,12 @@ import {
   INITIAL_AUDIT_LOGS,
   INITIAL_REMINDER_DELIVERIES,
 } from "./demo-data";
-import { calculateAttendanceRate, calculateStreaks } from "./attendance-calculator";
+import {
+  calculateAttendanceRate,
+  calculateStreaks,
+  parseLateInfo,
+  calculateMinutesLate,
+} from "./attendance-calculator";
 
 // In-memory persistent state (persists across requests during server runtime)
 interface StoreState {
@@ -710,6 +715,70 @@ export const DataStore = {
   // ---------------------------------------------------------------------------
   // Analytics & Aggregates
   // ---------------------------------------------------------------------------
+  getRecentLateArrivals(limit = 6): Array<{
+    id: string;
+    sessionId: string;
+    swimmerId: string;
+    swimmerName: string;
+    nickname?: string | null;
+    avatarColor?: string | null;
+    sessionTitle: string;
+    sessionDate: string;
+    sessionStartTime: string;
+    arrivalTime: string | null;
+    minutesLate: number;
+    reason: string | null;
+    notes?: string | null;
+    markedAt?: string;
+  }> {
+    const lateRecords = store.attendance.filter((a) => a.status === "late");
+
+    const enriched = [];
+
+    for (const record of lateRecords) {
+      const swimmer = store.swimmers.find((s) => s.id === record.swimmer_id);
+      const session = store.sessions.find((s) => s.id === record.session_id);
+      if (!swimmer || !session) continue;
+
+      const parsed = parseLateInfo(record.notes);
+      let mins = parsed?.minutesLate || 0;
+      const arrivalTime = parsed?.arrivalTime || null;
+
+      // If minutes was not explicitly recorded, check arrival time or default
+      if (mins === 0 && arrivalTime) {
+        mins = calculateMinutesLate(session.start_time, arrivalTime);
+      } else if (mins === 0) {
+        mins = 15; // sensible fallback
+      }
+
+      enriched.push({
+        id: record.id,
+        sessionId: session.id,
+        swimmerId: swimmer.id,
+        swimmerName: swimmer.full_name,
+        nickname: swimmer.nickname,
+        avatarColor: swimmer.avatar_color,
+        sessionTitle: session.title,
+        sessionDate: session.date,
+        sessionStartTime: session.start_time,
+        arrivalTime,
+        minutesLate: mins,
+        reason: parsed?.reason || null,
+        notes: record.notes,
+        markedAt: record.marked_at || record.updated_at,
+      });
+    }
+
+    // Sort descending by session date, then by markedAt
+    enriched.sort((a, b) => {
+      const dateDiff = new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return (b.markedAt ? new Date(b.markedAt).getTime() : 0) - (a.markedAt ? new Date(a.markedAt).getTime() : 0);
+    });
+
+    return enriched.slice(0, limit);
+  },
+
   getDashboardStats() {
     const activeSwimmers = store.swimmers.filter((s) => s.status === "active").length;
     const completedSessions = store.sessions.filter((s) => s.status === "completed").length;
@@ -730,6 +799,14 @@ export const DataStore = {
       s.date.startsWith(currentMonth)
     ).length;
 
+    // Late arrivals aggregate
+    const allLate = this.getRecentLateArrivals(100);
+    const totalLateCount = allLate.length;
+    const avgMinutesLate =
+      totalLateCount > 0
+        ? Math.round(allLate.reduce((sum, item) => sum + item.minutesLate, 0) / totalLateCount)
+        : 0;
+
     return {
       activeSwimmers,
       completedSessions,
@@ -737,6 +814,8 @@ export const DataStore = {
       overallAttendanceRate: overallRate.attendanceRate,
       sessionsThisMonth,
       totalRecords: relevantRecords.length,
+      totalLateCount,
+      avgMinutesLate,
     };
   },
 
