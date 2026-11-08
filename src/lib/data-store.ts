@@ -35,14 +35,20 @@ const globalForStore = globalThis as unknown as {
   __swimtrack_store?: StoreState;
 };
 
-function getInitialStore(): StoreState {
+function getInitialStore(forceDemo = false): StoreState {
+  const isCleanSlate =
+    !forceDemo &&
+    (process.env.CLEAR_DEMO_DATA === "true" ||
+      process.env.START_FRESH === "true" ||
+      process.env.NEXT_PUBLIC_START_FRESH === "true");
+
   return {
-    swimmers: JSON.parse(JSON.stringify(INITIAL_SWIMMERS)),
-    sessions: JSON.parse(JSON.stringify(INITIAL_SESSIONS)),
-    series: JSON.parse(JSON.stringify(INITIAL_SERIES)),
-    attendance: JSON.parse(JSON.stringify(INITIAL_ATTENDANCE)),
-    auditLogs: JSON.parse(JSON.stringify(INITIAL_AUDIT_LOGS)),
-    reminders: JSON.parse(JSON.stringify(INITIAL_REMINDER_DELIVERIES)),
+    swimmers: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_SWIMMERS)),
+    sessions: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_SESSIONS)),
+    series: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_SERIES)),
+    attendance: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_ATTENDANCE)),
+    auditLogs: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_AUDIT_LOGS)),
+    reminders: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_REMINDER_DELIVERIES)),
     settings: {
       general: {
         key: "general",
@@ -73,7 +79,7 @@ if (process.env.NODE_ENV !== "production") {
 
 export const DataStore = {
   resetToDemo(): void {
-    const fresh = getInitialStore();
+    const fresh = getInitialStore(true);
     store.swimmers = fresh.swimmers;
     store.sessions = fresh.sessions;
     store.series = fresh.series;
@@ -81,6 +87,15 @@ export const DataStore = {
     store.auditLogs = fresh.auditLogs;
     store.reminders = fresh.reminders;
     store.settings = fresh.settings;
+  },
+
+  clearAllData(): void {
+    store.swimmers = [];
+    store.sessions = [];
+    store.series = [];
+    store.attendance = [];
+    store.auditLogs = [];
+    store.reminders = [];
   },
 
   // ---------------------------------------------------------------------------

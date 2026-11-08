@@ -14,9 +14,11 @@ import {
   LogOut,
   Mail,
   Activity,
+  Trash2,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { logoutAction } from "@/actions/auth-actions";
+import { wipeAllDataAction } from "@/actions/settings-actions";
 import { DataStore } from "@/lib/data-store";
 import { toast } from "sonner";
 
@@ -57,6 +59,21 @@ export function SettingsClient() {
       DataStore.resetToDemo();
       toast.info("Database reset to demo state.");
       window.location.reload();
+    }
+  }
+
+  async function handleWipeAllData() {
+    const confirmation = prompt(
+      'Type "WIPE" to permanently delete all sample swimmers, sessions, and attendance records for a fresh production start:'
+    );
+    if (confirmation === "WIPE") {
+      const res = await wipeAllDataAction();
+      if (res.success) {
+        toast.success("Database wiped clean! Starting fresh production slate.");
+        window.location.href = "/dashboard";
+      } else {
+        toast.error(res.error || "Failed to wipe data.");
+      }
     }
   }
 
@@ -260,6 +277,24 @@ export function SettingsClient() {
           >
             <RotateCcw className="w-4 h-4" />
             <span>Reset Demo Store</span>
+          </button>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-destructive/20 bg-destructive/5 -mx-6 -mb-4 p-6 rounded-b-3xl">
+          <div>
+            <div className="text-xs font-bold text-destructive">Wipe All Data (Fresh Clean Slate)</div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Permanently delete all sample swimmers, sessions, and attendance records so you can start 100% fresh.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleWipeAllData}
+            className="px-4 py-2.5 rounded-xl bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold text-xs flex items-center gap-1.5 shrink-0 transition-all shadow-sm active:scale-95"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Wipe All Data & Start Fresh</span>
           </button>
         </div>
       </div>
