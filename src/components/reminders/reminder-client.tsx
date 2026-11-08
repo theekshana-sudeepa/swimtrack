@@ -12,11 +12,13 @@ import {
   RefreshCw,
   Users,
   Calendar,
+  Sparkles,
 } from "lucide-react";
 import { SwimSession, Swimmer, ReminderDelivery } from "@/types/database";
 import {
   sendManualSessionRemindersAction,
   sendTestReminderAction,
+  sendTestWelcomeEmailAction,
 } from "@/actions/reminder-actions";
 import { formatTime, cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -44,6 +46,7 @@ export function ReminderClient({
   const [isSending, setIsSending] = React.useState(false);
   const [isTestSending, setIsTestSending] = React.useState(false);
   const [testEmailAddress, setTestEmailAddress] = React.useState("admin@example.com");
+  const [testTemplate, setTestTemplate] = React.useState<"reminder" | "welcome">("reminder");
 
   // Filter eligible swimmers for this session
   // In our client we can derive from session participants if available or show count
@@ -92,17 +95,34 @@ export function ReminderClient({
   }
 
   async function handleSendTest() {
-    if (!selectedSession || !testEmailAddress) return;
+    if (!testEmailAddress || !testEmailAddress.includes("@")) {
+      toast.error("Please enter a valid test email address.");
+      return;
+    }
     setIsTestSending(true);
     try {
-      const res = await sendTestReminderAction(selectedSession.id, testEmailAddress);
-      if (res.error) {
-        toast.error(res.error);
+      if (testTemplate === "welcome") {
+        const res = await sendTestWelcomeEmailAction(testEmailAddress);
+        if (res.error) {
+          toast.error(res.error);
+        } else {
+          toast.success(`Welcome & Swimmer Pass test email sent to ${testEmailAddress}!`);
+        }
       } else {
-        toast.success(`Test email dispatched to ${testEmailAddress}`);
+        if (!selectedSession) {
+          toast.error("Please select a session for the reminder preview.");
+          setIsTestSending(false);
+          return;
+        }
+        const res = await sendTestReminderAction(selectedSession.id, testEmailAddress);
+        if (res.error) {
+          toast.error(res.error);
+        } else {
+          toast.success(`Session reminder test email sent to ${testEmailAddress}!`);
+        }
       }
     } catch {
-      toast.error("Failed to send test email.");
+      toast.error("Failed to dispatch test email.");
     } finally {
       setIsTestSending(false);
     }
@@ -205,27 +225,65 @@ export function ReminderClient({
           </div>
 
           {/* Test Email Section */}
-          <div className="pt-4 border-t border-border space-y-2">
-            <label className="block text-xs font-semibold text-foreground">
-              Send Test Sample to Admin Email
-            </label>
+          <div className="pt-4 border-t border-border space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-aqua" />
+                <span>Send Live Test to Custom Email</span>
+              </label>
+              <div className="flex items-center gap-1 text-[11px] bg-secondary/50 p-0.5 rounded-lg border border-border">
+                <button
+                  type="button"
+                  onClick={() => setTestTemplate("reminder")}
+                  className={cn(
+                    "px-2 py-0.5 rounded-md font-semibold transition-all",
+                    testTemplate === "reminder"
+                      ? "bg-aqua text-ocean-950 shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Reminder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTestTemplate("welcome")}
+                  className={cn(
+                    "px-2 py-0.5 rounded-md font-semibold transition-all",
+                    testTemplate === "welcome"
+                      ? "bg-seafoam text-ocean-950 shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Welcome Pass
+                </button>
+              </div>
+            </div>
+
             <div className="flex items-center gap-2">
               <input
                 type="email"
                 value={testEmailAddress}
                 onChange={(e) => setTestEmailAddress(e.target.value)}
-                placeholder="admin@example.com"
-                className="flex-1 p-2 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                placeholder="your-email@example.com"
+                className="flex-1 px-3 py-2 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
               />
               <button
                 type="button"
                 onClick={handleSendTest}
                 disabled={isTestSending}
-                className="px-3 py-2 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-xs font-semibold text-foreground"
+                className="px-3.5 py-2 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-xs font-bold text-foreground flex items-center gap-1.5 shrink-0 transition-all active:scale-95 disabled:opacity-50"
               >
-                {isTestSending ? "Sending..." : "Test Email"}
+                <Send className="w-3 h-3 text-aqua" />
+                <span>
+                  {isTestSending
+                    ? "Sending..."
+                    : `Send ${testTemplate === "welcome" ? "Welcome Pass" : "Reminder"}`}
+                </span>
               </button>
             </div>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              Delivers directly to any email address to test real Resend delivery and formatting on your phone.
+            </p>
           </div>
         </div>
 

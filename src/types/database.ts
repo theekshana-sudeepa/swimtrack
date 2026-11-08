@@ -153,3 +153,12 @@ export interface AttendanceCalculationResult {
   attendanceRate: number; // (present + late) / (present + late + absent) * 100
 }
 
+export interface SquadMessage {
+  id: string;
+  author_name: string;
+  author_swimmer_id?: string | null;
+  content: string;
+  created_at: string;
+  is_admin?: boolean;
+}
+

@@ -8,6 +8,7 @@ import {
   AttendanceAuditLog,
   ReminderDelivery,
   AppSetting,
+  SquadMessage,
 } from "@/types/database";
 import {
   INITIAL_SWIMMERS,
@@ -27,6 +28,7 @@ interface StoreState {
   attendance: AttendanceRecord[];
   auditLogs: AttendanceAuditLog[];
   reminders: ReminderDelivery[];
+  messages: SquadMessage[];
   settings: Record<string, AppSetting>;
 }
 
@@ -49,6 +51,15 @@ function getInitialStore(forceDemo = false): StoreState {
     attendance: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_ATTENDANCE)),
     auditLogs: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_AUDIT_LOGS)),
     reminders: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_REMINDER_DELIVERIES)),
+    messages: [
+      {
+        id: "msg-welcome-admin",
+        author_name: "Squad Coach",
+        content: "Welcome to SwimTrack! Use this chalkboard for squad updates, pool notes, and motivation 🏊🌊",
+        created_at: new Date().toISOString(),
+        is_admin: true,
+      },
+    ],
     settings: {
       general: {
         key: "general",
@@ -86,6 +97,7 @@ export const DataStore = {
     store.attendance = fresh.attendance;
     store.auditLogs = fresh.auditLogs;
     store.reminders = fresh.reminders;
+    store.messages = fresh.messages;
     store.settings = fresh.settings;
   },
 
@@ -96,6 +108,7 @@ export const DataStore = {
     store.attendance = [];
     store.auditLogs = [];
     store.reminders = [];
+    store.messages = [];
   },
 
   // ---------------------------------------------------------------------------
@@ -684,5 +697,104 @@ export const DataStore = {
       updated_at: new Date().toISOString(),
     };
     return store.settings[key];
+  },
+
+  // ---------------------------------------------------------------------------
+  // Swimmer Portal & Squad Pass
+  // ---------------------------------------------------------------------------
+  getSwimmerByToken(token: string): Swimmer | null {
+    if (!token) return null;
+    const cleanToken = token.trim();
+    const swimmers = this.getSwimmers({ status: "all" });
+    return (
+      swimmers.find(
+        (s) =>
+          s.reminder_preferences?.opt_out_token === cleanToken ||
+          s.id === cleanToken ||
+          (s.email && s.email.toLowerCase() === cleanToken.toLowerCase())
+      ) || null
+    );
+  },
+
+  getSwimmerAttendanceHistory(swimmerId: string) {
+    const records = store.attendance.filter((a) => a.swimmer_id === swimmerId);
+    return records
+      .map((r) => {
+        const session = store.sessions.find((s) => s.id === r.session_id);
+        return {
+          ...r,
+          session: session || null,
+        };
+      })
+      .sort((a, b) => {
+        const dateA = a.session?.date || "";
+        const dateB = b.session?.date || "";
+        return dateB.localeCompare(dateA);
+      });
+  },
+
+  submitSwimmerRsvp(
+    swimmerId: string,
+    sessionId: string,
+    status: "attending" | "declined",
+    reason?: string
+  ) {
+    let record = store.attendance.find(
+      (a) => a.swimmer_id === swimmerId && a.session_id === sessionId
+    );
+
+    if (!record) {
+      record = {
+        id: `att-${sessionId}-${swimmerId}`,
+        session_id: sessionId,
+        swimmer_id: swimmerId,
+        status: status === "attending" ? "not_marked" : "excused",
+        notes:
+          status === "attending"
+            ? "RSVP: Confirmed Attending 🏊"
+            : `RSVP: Excused - ${reason || "Cannot attend"}`,
+        marked_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      store.attendance.push(record);
+    } else {
+      if (status === "declined") {
+        record.status = "excused";
+        record.notes = `RSVP: Excused - ${reason || "Cannot attend"}`;
+      } else {
+        if (record.status === "excused" || record.status === "absent") {
+          record.status = "not_marked";
+        }
+        record.notes = "RSVP: Confirmed Attending 🏊";
+      }
+      record.updated_at = new Date().toISOString();
+    }
+
+    return record;
+  },
+
+  getSquadMessages(): SquadMessage[] {
+    return (store.messages || [])
+      .slice()
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  postSquadMessage(data: {
+    author_name: string;
+    content: string;
+    author_swimmer_id?: string;
+    is_admin?: boolean;
+  }): SquadMessage {
+    const newMsg: SquadMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      author_name: data.author_name.trim(),
+      content: data.content.trim(),
+      author_swimmer_id: data.author_swimmer_id || null,
+      created_at: new Date().toISOString(),
+      is_admin: data.is_admin ?? false,
+    };
+    if (!store.messages) store.messages = [];
+    store.messages.unshift(newMsg);
+    return newMsg;
   },
 };

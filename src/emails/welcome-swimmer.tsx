@@ -16,12 +16,14 @@ interface WelcomeSwimmerEmailProps {
   swimmerName?: string;
   nickname?: string;
   optOutUrl?: string;
+  portalUrl?: string;
 }
 
 export default function WelcomeSwimmerEmail({
   swimmerName = "Swimmer",
   nickname,
   optOutUrl = "https://swimtrack.app/reminders/opt-out",
+  portalUrl = "https://swimtrack.app/portal",
 }: WelcomeSwimmerEmailProps) {
   const displayName = nickname ? `${swimmerName} ("${nickname}")` : swimmerName;
 
@@ -56,6 +58,18 @@ export default function WelcomeSwimmerEmail({
                 spike, and claim the coveted Zero-Polla Overlord crown.
               </Text>
             </Section>
+
+            {/* Personal Swimmer Pass Button */}
+            {portalUrl && (
+              <Section style={{ textAlign: "center", margin: "28px 0" }}>
+                <Link href={portalUrl} style={buttonStyle}>
+                  Open My Swimmer Pass & RSVP 🏊
+                </Link>
+                <Text style={{ fontSize: "11px", color: "#52758e", marginTop: "10px", lineHeight: "16px" }}>
+                  💡 <strong>Tip:</strong> Tap above and save it to your phone home screen! Check your attendance streak, upcoming practice times, and RSVP before sessions with 1 tap.
+                </Text>
+              </Section>
+            )}
 
             {/* What to Expect Box */}
             <Section style={infoBoxStyle}>
@@ -203,6 +217,19 @@ const personaDescStyle: React.CSSProperties = {
   lineHeight: "18px",
   color: "#D1EBF3",
   margin: 0,
+};
+
+const buttonStyle: React.CSSProperties = {
+  backgroundColor: "#22C7D8",
+  color: "#071B2B",
+  padding: "14px 28px",
+  borderRadius: "12px",
+  fontWeight: 800,
+  fontSize: "14px",
+  textDecoration: "none",
+  display: "inline-block",
+  textAlign: "center",
+  boxShadow: "0 4px 14px rgba(34, 199, 216, 0.3)",
 };
 
 const infoBoxStyle: React.CSSProperties = {

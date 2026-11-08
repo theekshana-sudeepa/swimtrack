@@ -195,7 +195,9 @@ export async function sendWelcomeEmail({
   const resend = getResendClient();
   const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmer.reminder_preferences?.opt_out_token || "general"}`;
+  const swimmerToken = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
+  const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmerToken}`;
+  const portalUrl = `${appUrl}/portal/${swimmerToken}`;
 
   if (!resend) {
     return {
@@ -209,6 +211,7 @@ export async function sendWelcomeEmail({
       swimmerName: swimmer.full_name,
       nickname: swimmer.nickname || undefined,
       optOutUrl,
+      portalUrl,
     });
 
     const { data, error } = await resend.emails.send(

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
-import { sendSessionReminder } from "@/lib/resend-service";
+import { sendSessionReminder, sendWelcomeEmail } from "@/lib/resend-service";
 
 export async function sendManualSessionRemindersAction(
   sessionId: string,
@@ -70,5 +70,28 @@ export async function sendTestReminderAction(sessionId: string, testEmail: strin
 
   revalidatePath("/reminders");
   return { success: true, result: res };
+}
+
+export async function sendTestWelcomeEmailAction(testEmail: string) {
+  await requireAdminSession();
+
+  const mockSwimmer = {
+    id: "test-welcome-swimmer",
+    full_name: "Test Squad Swimmer",
+    nickname: "Aqua Cadet",
+    email: testEmail.trim(),
+    join_date: new Date().toISOString().split("T")[0],
+    status: "active" as const,
+    reminder_preferences: {
+      id: "pref-test-welcome",
+      swimmer_id: "test-welcome-swimmer",
+      email_reminders_enabled: true,
+      opt_out_token: "demo_pass_token",
+    },
+  };
+
+  const res = await sendWelcomeEmail({ swimmer: mockSwimmer });
+  revalidatePath("/reminders");
+  return res;
 }
 
