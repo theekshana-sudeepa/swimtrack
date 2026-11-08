@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
-import { sendWelcomeEmail } from "@/lib/resend-service";
+import { sendWelcomeEmail, sendAdminNewSwimmerAlert } from "@/lib/resend-service";
 import { Swimmer } from "@/types/database";
 
 export async function createSwimmerAction(formData: FormData) {
@@ -38,6 +38,13 @@ export async function createSwimmerAction(formData: FormData) {
     } catch (e) {
       console.error("Welcome email failed:", e);
     }
+  }
+
+  // Dispatch alert notification to admin
+  try {
+    await sendAdminNewSwimmerAlert({ swimmer });
+  } catch (err) {
+    console.error("Admin registration alert delivery failed:", err);
   }
 
   revalidatePath("/swimmers");
@@ -171,6 +178,13 @@ export async function joinSquadAction(formData: FormData): Promise<{
     } catch (err) {
       console.error("Welcome email delivery failed:", err);
     }
+  }
+
+  // Dispatch alert notification to admin
+  try {
+    await sendAdminNewSwimmerAlert({ swimmer });
+  } catch (err) {
+    console.error("Admin registration alert delivery failed:", err);
   }
 
   revalidatePath("/swimmers");

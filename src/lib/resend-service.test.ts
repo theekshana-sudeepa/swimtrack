@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { DataStore } from "./data-store";
-import { sendSessionReminder } from "./resend-service";
+import { sendSessionReminder, sendAdminNewSwimmerAlert } from "./resend-service";
 
 describe("Reminder Service and Duplicate Protection", () => {
   beforeEach(() => {
@@ -44,6 +44,23 @@ describe("Reminder Service and Duplicate Protection", () => {
     });
     expect(secondResult.status).toBe("skipped");
     expect(secondResult.error).toContain("already sent");
+  });
+
+  it("dispatches admin new swimmer alert with simulated id in test environment", async () => {
+    const swimmer = DataStore.getSwimmerById("11111111-1111-1111-1111-111111111101")!;
+    const res = await sendAdminNewSwimmerAlert({ swimmer });
+    expect(res.success).toBe(true);
+    expect(res.messageId).toContain("sim_admin_alert_");
+  });
+
+  it("allows custom admin email override", async () => {
+    const swimmer = DataStore.getSwimmerById("11111111-1111-1111-1111-111111111101")!;
+    const res = await sendAdminNewSwimmerAlert({
+      swimmer,
+      overrideAdminEmail: "theekshanasudeepa4@gmail.com",
+    });
+    expect(res.success).toBe(true);
+    expect(res.messageId).toBeDefined();
   });
 });
 

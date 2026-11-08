@@ -62,12 +62,15 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
     (formData.get("default_duration_minutes") as string) || "60",
     10
   );
+  const admin_email =
+    (formData.get("admin_email") as string)?.trim() || "theekshanasudeepa4@gmail.com";
 
   try {
     DataStore.updateAppSetting("general", {
       group_name,
       default_pool,
       default_duration_minutes,
+      admin_email,
       timezone: "Asia/Colombo",
     });
 
@@ -79,6 +82,7 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
           group_name,
           default_pool,
           default_duration_minutes,
+          admin_email,
           timezone: "Asia/Colombo",
         },
         updated_at: new Date().toISOString(),

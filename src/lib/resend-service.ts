@@ -4,6 +4,7 @@ import { Swimmer, SwimSession } from "@/types/database";
 import { DataStore } from "./data-store";
 import UpcomingSessionEmail from "@/emails/upcoming-session";
 import WelcomeSwimmerEmail from "@/emails/welcome-swimmer";
+import AdminNewSwimmerAlertEmail from "@/emails/admin-new-swimmer-alert";
 
 function getResendClient(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
@@ -75,7 +76,7 @@ export async function sendSessionReminder({
   }
 
   const resend = getResendClient();
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>";
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmer.reminder_preferences?.opt_out_token || "general"}`;
 
@@ -193,7 +194,7 @@ export async function sendWelcomeEmail({
   }
 
   const resend = getResendClient();
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>";
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const swimmerToken = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
   const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmerToken}`;
@@ -278,6 +279,130 @@ export async function sendWelcomeEmail({
       swimmer_id: swimmer.id,
       reminder_type: "manual",
       recipient_email: swimmer.email,
+      status: "failed",
+      error_message: errorMsg,
+    });
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function sendAdminNewSwimmerAlert({
+  swimmer,
+  overrideAdminEmail,
+}: {
+  swimmer: Swimmer;
+  overrideAdminEmail?: string;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const settings = DataStore.getAppSettings();
+  const configuredAdminEmail =
+    overrideAdminEmail?.trim() ||
+    (settings?.general?.value?.admin_email as string | undefined)?.trim() ||
+    process.env.ADMIN_EMAIL?.trim() ||
+    "theekshanasudeepa4@gmail.com";
+
+  if (!configuredAdminEmail || !configuredAdminEmail.includes("@")) {
+    return { success: false, error: "No valid admin email configured." };
+  }
+
+  const resend = getResendClient();
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  const enrolledAt = new Date().toLocaleString("en-US", {
+    timeZone: "Asia/Colombo",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+
+  const adminSwimmerUrl = `${appUrl}/swimmers/${swimmer.id}`;
+  const attendanceDeckUrl = `${appUrl}/attendance`;
+
+  if (!resend) {
+    const isTest = process.env.NODE_ENV === "test" || process.env.VITEST;
+    if (isTest) {
+      return {
+        success: true,
+        messageId: `sim_admin_alert_${Date.now()}`,
+      };
+    }
+
+    const errorMsg =
+      "RESEND_API_KEY is missing or invalid in Vercel environment variables. Please configure your Resend API key to deliver real emails.";
+    DataStore.recordReminderDelivery({
+      claim_key: `admin-alert:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: configuredAdminEmail,
+      status: "failed",
+      error_message: errorMsg,
+    });
+
+    return {
+      success: false,
+      error: errorMsg,
+    };
+  }
+
+  try {
+    const emailElement = React.createElement(AdminNewSwimmerAlertEmail, {
+      swimmerName: swimmer.full_name,
+      nickname: swimmer.nickname || undefined,
+      email: swimmer.email || undefined,
+      phone: swimmer.phone || undefined,
+      enrolledAt,
+      adminSwimmerUrl,
+      attendanceDeckUrl,
+    });
+
+    const displayName = swimmer.nickname
+      ? `${swimmer.full_name} ("${swimmer.nickname}")`
+      : swimmer.full_name;
+
+    const { data, error } = await resend.emails.send(
+      {
+        from: fromEmail,
+        to: [configuredAdminEmail],
+        subject: `🏊 New Swimmer Registered: ${displayName}`,
+        react: emailElement,
+      },
+      {
+        idempotencyKey: `swimtrack/admin-alert/${swimmer.id}/${Date.now()}`,
+      }
+    );
+
+    if (error) {
+      DataStore.recordReminderDelivery({
+        claim_key: `admin-alert:${swimmer.id}:${Date.now()}`,
+        session_id: "00000000-0000-0000-0000-000000000000",
+        swimmer_id: swimmer.id,
+        reminder_type: "manual",
+        recipient_email: configuredAdminEmail,
+        status: "failed",
+        error_message: error.message,
+      });
+      return { success: false, error: error.message };
+    }
+
+    DataStore.recordReminderDelivery({
+      claim_key: `admin-alert:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: configuredAdminEmail,
+      status: "sent",
+      provider_message_id: data?.id,
+    });
+
+    return { success: true, messageId: data?.id };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Failed to dispatch admin notification email";
+    DataStore.recordReminderDelivery({
+      claim_key: `admin-alert:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: configuredAdminEmail,
       status: "failed",
       error_message: errorMsg,
     });

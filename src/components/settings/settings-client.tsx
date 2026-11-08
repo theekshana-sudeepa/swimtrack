@@ -44,6 +44,9 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
   const [duration, setDuration] = React.useState(
     String(generalVal?.default_duration_minutes || "60")
   );
+  const [adminEmail, setAdminEmail] = React.useState(
+    (generalVal?.admin_email as string) || "theekshanasudeepa4@gmail.com"
+  );
   const [timezone] = React.useState("Asia/Colombo (UTC+05:30)");
   const [autoReminders, setAutoReminders] = React.useState(
     reminderVal?.auto_reminders_enabled !== false
@@ -56,6 +59,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
       if (g.group_name) setGroupName(g.group_name as string);
       if (g.default_pool !== undefined) setDefaultPool(g.default_pool as string);
       if (g.default_duration_minutes) setDuration(String(g.default_duration_minutes));
+      if (g.admin_email) setAdminEmail(g.admin_email as string);
     }
   }, [initialSettings]);
 
@@ -225,6 +229,23 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
               value={timezone}
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/20 text-sm text-muted-foreground cursor-not-allowed"
             />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="block font-semibold text-foreground mb-1">
+              Admin Alert Email (New Swimmer Registration Notifications)
+            </label>
+            <input
+              type="email"
+              name="admin_email"
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+              placeholder="theekshanasudeepa4@gmail.com"
+              className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Instant email notification dispatched to this address whenever a swimmer self-registers via the invite portal or joins the squad.
+            </p>
           </div>
         </div>
 

@@ -68,6 +68,7 @@ function getInitialStore(forceDemo = false): StoreState {
           default_pool: "Royal College Aquatic Complex, Colombo",
           default_duration_minutes: 60,
           timezone: "Asia/Colombo",
+          admin_email: "theekshanasudeepa4@gmail.com",
         },
       },
       reminders: {
