@@ -12,6 +12,7 @@ import {
   Mail,
   Zap,
   Lock,
+  Unlock,
   Download,
   AlertTriangle,
   ShieldAlert,
@@ -25,6 +26,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { AttendanceRecord, Swimmer, SwimSession } from "@/types/database";
+import { finalizeSessionAction, reopenSessionAction } from "@/actions/session-actions";
 import { generateSessionStateReport, SessionStateReport } from "@/lib/session-reports";
 import { formatTime, getInitials, cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -45,6 +47,35 @@ export function SessionStateReportClient({
   const [activeTab, setActiveTab] = React.useState<"report" | "roster">("report");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [isFinalized, setIsFinalized] = React.useState(session.is_finalized);
+  const [isActionPending, setIsActionPending] = React.useState(false);
+
+  React.useEffect(() => {
+    setIsFinalized(session.is_finalized);
+  }, [session.is_finalized]);
+
+  async function handleToggleFinalize() {
+    setIsActionPending(true);
+    try {
+      if (isFinalized) {
+        const res = await reopenSessionAction(session.id);
+        if (res.success) {
+          setIsFinalized(false);
+          toast.info("Session reopened for attendance editing.");
+        }
+      } else {
+        const res = await finalizeSessionAction(session.id);
+        if (res.success) {
+          setIsFinalized(true);
+          toast.success("Session finalized & marked completed!");
+        }
+      }
+    } catch {
+      toast.error("Failed to update session finalization status.");
+    } finally {
+      setIsActionPending(false);
+    }
+  }
 
   const report: SessionStateReport = React.useMemo(() => {
     return generateSessionStateReport(session, attendance, swimmers);
@@ -121,17 +152,17 @@ export function SessionStateReportClient({
               <span
                 className={cn(
                   "text-[10px] uppercase font-extrabold px-2.5 py-0.5 rounded-full border",
-                  session.status === "scheduled"
-                    ? "bg-seafoam/10 text-seafoam border-seafoam/30"
-                    : session.status === "completed"
+                  isFinalized || session.status === "completed"
                     ? "bg-ocean-900 text-aqua border-aqua/30"
-                    : "bg-coral/10 text-coral border-coral/30"
+                    : session.status === "cancelled"
+                    ? "bg-coral/10 text-coral border-coral/30"
+                    : "bg-seafoam/10 text-seafoam border-seafoam/30"
                 )}
               >
-                {session.status}
+                {isFinalized ? "completed" : session.status}
               </span>
 
-              {session.is_finalized && (
+              {isFinalized && (
                 <span className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1 bg-secondary px-2 py-0.5 rounded-full">
                   <Lock className="w-3 h-3 text-aqua" />
                   Finalized Attendance
@@ -168,6 +199,30 @@ export function SessionStateReportClient({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={isActionPending}
+              onClick={handleToggleFinalize}
+              className={cn(
+                "px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95",
+                isFinalized
+                  ? "border border-border bg-secondary hover:bg-secondary/80 text-foreground"
+                  : "bg-seafoam hover:bg-seafoam/90 text-ocean-950 font-extrabold"
+              )}
+            >
+              {isFinalized ? (
+                <>
+                  <Unlock className="w-4 h-4 text-aqua" />
+                  <span>Reopen Session</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>Finalize Session</span>
+                </>
+              )}
+            </button>
+
             <Link
               href={`/attendance?session=${session.id}`}
               className="px-4 py-2.5 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 font-bold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95"

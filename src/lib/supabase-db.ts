@@ -307,7 +307,12 @@ export const SupabaseDB = {
     const supabase = getSupabaseAdminClient();
     if (!supabase) return;
     try {
-      await supabase.from("swim_sessions").upsert({
+      const isValidUuid = (val?: string | null) =>
+        typeof val === "string" &&
+        val.length === 36 &&
+        val !== "00000000-0000-0000-0000-000000000000";
+
+      const payload: Record<string, unknown> = {
         id: session.id,
         title: session.title,
         date: session.date,
@@ -316,9 +321,21 @@ export const SupabaseDB = {
         location: session.location,
         notes: session.notes || null,
         status: session.status,
-        is_finalized: session.is_finalized,
+        is_finalized: !!session.is_finalized,
         updated_at: new Date().toISOString(),
-      });
+      };
+
+      if (session.finalized_at) {
+        payload.finalized_at = session.finalized_at;
+      }
+      if (isValidUuid(session.finalized_by)) {
+        payload.finalized_by = session.finalized_by;
+      }
+
+      const { error } = await supabase.from("swim_sessions").upsert(payload);
+      if (error) {
+        console.error("[SupabaseDB] Error upserting session:", error);
+      }
     } catch (err) {
       console.error("[SupabaseDB] Error upserting session:", err);
     }

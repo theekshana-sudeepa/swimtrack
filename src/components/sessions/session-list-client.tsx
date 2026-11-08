@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Calendar,
   Plus,
@@ -15,12 +16,15 @@ import {
   AlertCircle,
   X,
   Lock,
+  Unlock,
 } from "lucide-react";
 import { SwimSession } from "@/types/database";
 import {
   createSessionAction,
   createSeriesAction,
   cancelSessionAction,
+  finalizeSessionAction,
+  reopenSessionAction,
 } from "@/actions/session-actions";
 import { formatTime, cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -34,14 +38,53 @@ export function SessionListClient({
   defaultPool?: string;
   defaultDuration?: number;
 }) {
+  const router = useRouter();
   const [sessions, setSessions] = React.useState<SwimSession[]>(initialSessions);
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [showCreateSingleModal, setShowCreateSingleModal] = React.useState(false);
   const [showCreateSeriesModal, setShowCreateSeriesModal] = React.useState(false);
+  const [actionPendingId, setActionPendingId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setSessions(initialSessions);
   }, [initialSessions]);
+
+  async function handleToggleFinalize(session: SwimSession) {
+    setActionPendingId(session.id);
+    try {
+      if (session.is_finalized) {
+        const res = await reopenSessionAction(session.id);
+        if (res.success) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === session.id
+                ? { ...s, is_finalized: false, status: "scheduled" as const }
+                : s
+            )
+          );
+          toast.info(`Session "${session.title}" reopened for editing.`);
+          router.refresh();
+        }
+      } else {
+        const res = await finalizeSessionAction(session.id);
+        if (res.success) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === session.id
+                ? { ...s, is_finalized: true, status: "completed" as const }
+                : s
+            )
+          );
+          toast.success(`Session "${session.title}" finalized & marked completed!`);
+          router.refresh();
+        }
+      }
+    } catch {
+      toast.error("Failed to update session status.");
+    } finally {
+      setActionPendingId(null);
+    }
+  }
 
   const filteredSessions = sessions.filter((s) => {
     if (statusFilter !== "all" && s.status !== statusFilter) return false;
@@ -92,6 +135,7 @@ export function SessionListClient({
     } else {
       toast.success("Session scheduled!");
       setShowCreateSingleModal(false);
+      router.refresh();
     }
   }
 
@@ -105,6 +149,7 @@ export function SessionListClient({
     } else {
       toast.success(`Recurring series created with ${res.createdSessionsCount} sessions!`);
       setShowCreateSeriesModal(false);
+      router.refresh();
     }
   }
 
@@ -112,6 +157,7 @@ export function SessionListClient({
     if (confirm("Cancel this swimming session? Participants will see it marked as Cancelled.")) {
       await cancelSessionAction(id);
       toast.info("Session cancelled.");
+      router.refresh();
     }
   }
 
@@ -256,7 +302,32 @@ export function SessionListClient({
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={actionPendingId === session.id}
+                    onClick={() => handleToggleFinalize(session)}
+                    title={session.is_finalized ? "Reopen session for editing" : "Finalize attendance for this session"}
+                    className={cn(
+                      "px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs",
+                      session.is_finalized
+                        ? "border border-border bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        : "border border-aqua/40 bg-aqua/10 text-aqua hover:bg-aqua/20"
+                    )}
+                  >
+                    {session.is_finalized ? (
+                      <>
+                        <Unlock className="w-3.5 h-3.5 text-aqua" />
+                        <span className="hidden sm:inline">Reopen</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Finalize</span>
+                      </>
+                    )}
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => downloadICS(session)}

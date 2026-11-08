@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
+import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import { sanitizeString } from "@/lib/security";
 
 export async function createSessionAction(formData: FormData) {
@@ -102,7 +103,22 @@ export async function updateSessionAction(id: string, formData: FormData) {
 
 export async function cancelSessionAction(id: string) {
   await requireAdminSession();
-  DataStore.cancelSession(id);
+  await DataStore.syncFromSupabase();
+  const session = DataStore.cancelSession(id);
+
+  const supabase = getSupabaseAdminClient();
+  if (supabase) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("swim_sessions")
+      .update({ status: "cancelled", updated_at: now })
+      .eq("id", id);
+  }
+
+  if (session) {
+    await SupabaseDB.upsertSession(session);
+  }
+
   revalidatePath("/sessions");
   revalidatePath(`/sessions/${id}`);
   revalidatePath("/calendar");
@@ -112,28 +128,92 @@ export async function cancelSessionAction(id: string) {
 
 export async function finalizeSessionAction(id: string) {
   const admin = await requireAdminSession();
+  // Ensure stateless lambda has fresh session state from Supabase
+  await DataStore.syncFromSupabase();
+
   const session = DataStore.finalizeSession(id, admin.id);
+
+  // Directly update Supabase Postgres swim_sessions table
+  const supabase = getSupabaseAdminClient();
+  if (supabase) {
+    const now = new Date().toISOString();
+    const isValidUuid = (val?: string | null) =>
+      typeof val === "string" &&
+      val.length === 36 &&
+      val !== "00000000-0000-0000-0000-000000000000";
+
+    const updatePayload: Record<string, unknown> = {
+      status: "completed",
+      is_finalized: true,
+      finalized_at: now,
+      updated_at: now,
+    };
+
+    if (isValidUuid(admin.id)) {
+      updatePayload.finalized_by = admin.id;
+    }
+
+    const { error } = await supabase
+      .from("swim_sessions")
+      .update(updatePayload)
+      .eq("id", id);
+
+    if (error) {
+      console.error("[finalizeSessionAction] Supabase update error:", error);
+    }
+  }
+
   if (session) {
     await SupabaseDB.upsertSession(session);
   }
+
   revalidatePath("/sessions");
   revalidatePath(`/sessions/${id}`);
   revalidatePath("/attendance");
   revalidatePath("/dashboard");
   revalidatePath("/analytics");
-  return { success: true };
+  revalidatePath("/calendar");
+
+  return { success: true, is_finalized: true, status: "completed" };
 }
 
 export async function reopenSessionAction(id: string) {
   await requireAdminSession();
+  // Ensure stateless lambda has fresh session state from Supabase
+  await DataStore.syncFromSupabase();
+
   const session = DataStore.reopenSession(id);
+
+  // Directly update Supabase Postgres swim_sessions table
+  const supabase = getSupabaseAdminClient();
+  if (supabase) {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("swim_sessions")
+      .update({
+        status: "scheduled",
+        is_finalized: false,
+        finalized_at: null,
+        finalized_by: null,
+        updated_at: now,
+      })
+      .eq("id", id);
+
+    if (error) {
+      console.error("[reopenSessionAction] Supabase update error:", error);
+    }
+  }
+
   if (session) {
     await SupabaseDB.upsertSession(session);
   }
+
   revalidatePath("/sessions");
   revalidatePath(`/sessions/${id}`);
   revalidatePath("/attendance");
   revalidatePath("/dashboard");
   revalidatePath("/analytics");
-  return { success: true };
+  revalidatePath("/calendar");
+
+  return { success: true, is_finalized: false, status: "scheduled" };
 }

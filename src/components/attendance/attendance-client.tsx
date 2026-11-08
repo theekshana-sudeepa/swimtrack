@@ -73,6 +73,15 @@ export function AttendanceClient({
 }: AttendanceClientProps) {
   const router = useRouter();
 
+  // Session Finalization State
+  const [isFinalized, setIsFinalized] = React.useState(session.is_finalized);
+  const [sessionStatus, setSessionStatus] = React.useState(session.status);
+
+  React.useEffect(() => {
+    setIsFinalized(session.is_finalized);
+    setSessionStatus(session.status);
+  }, [session.is_finalized, session.status]);
+
   // Attendance Records State
   const [attendance, setAttendance] = React.useState<AttendanceRecord[]>(initialAttendance);
   const [pendingIds, setPendingIds] = React.useState<Set<string>>(new Set());
@@ -479,11 +488,17 @@ export function AttendanceClient({
     setIsFinalizing(true);
     setShowFinalizeWarning(false);
     try {
-      await finalizeSessionAction(session.id);
-      toast.success("Attendance finalized for this session.");
-      confetti({ particleCount: 70, spread: 80, origin: { y: 0.7 } });
-      setShowRecapModal(true);
-      router.refresh();
+      const res = await finalizeSessionAction(session.id);
+      if (res?.success) {
+        setIsFinalized(true);
+        setSessionStatus("completed");
+        toast.success("Attendance finalized for this session.");
+        confetti({ particleCount: 70, spread: 80, origin: { y: 0.7 } });
+        setShowRecapModal(true);
+        router.refresh();
+      } else {
+        toast.error("Failed to finalize session.");
+      }
     } catch {
       toast.error("Failed to finalize session.");
     } finally {
@@ -553,12 +568,21 @@ export function AttendanceClient({
   }
 
   async function handleReopenSession() {
+    setIsFinalizing(true);
     try {
-      await reopenSessionAction(session.id);
-      toast.info("Session reopened for attendance corrections.");
-      router.refresh();
+      const res = await reopenSessionAction(session.id);
+      if (res?.success) {
+        setIsFinalized(false);
+        setSessionStatus("scheduled");
+        toast.info("Session reopened for attendance corrections.");
+        router.refresh();
+      } else {
+        toast.error("Failed to reopen session.");
+      }
     } catch {
       toast.error("Failed to reopen session.");
+    } finally {
+      setIsFinalizing(false);
     }
   }
 
@@ -652,12 +676,12 @@ export function AttendanceClient({
               <span
                 className={cn(
                   "text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full border",
-                  session.is_finalized
+                  isFinalized
                     ? "bg-ocean-900 text-aqua border-aqua/30"
                     : "bg-seafoam/10 text-seafoam border-seafoam/30"
                 )}
               >
-                {session.is_finalized ? "Finalized Session" : "Live Session Register"}
+                {isFinalized ? "Finalized Session" : "Live Session Register"}
               </span>
 
               {/* Session Selector Dropdown */}
@@ -717,10 +741,11 @@ export function AttendanceClient({
               </button>
             )}
 
-            {session.is_finalized ? (
+            {isFinalized ? (
               <button
                 type="button"
                 onClick={handleReopenSession}
+                disabled={isFinalizing}
                 className="px-3.5 py-2 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-foreground text-xs font-semibold flex items-center gap-1.5 transition-all"
               >
                 <Unlock className="w-3.5 h-3.5 text-aqua" />
@@ -1366,24 +1391,37 @@ export function AttendanceClient({
 
             <p className="text-xs text-muted-foreground leading-relaxed">
               There are still <strong>{notMarkedCount} unmarked swimmers</strong> on the register.
-              Finalizing will preserve their unmarked status without silently converting them to absent.
+              How would you like to finalize?
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+            <div className="flex flex-col gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setShowFinalizeWarning(false)}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-secondary"
+                onClick={async () => {
+                  await handleMarkRemainingAbsent();
+                  await executeFinalize();
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-coral/20 hover:bg-coral/30 border border-coral/40 text-coral text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs"
               >
-                Review Register
+                <span>🌴 Mark {notMarkedCount} Remaining as Absent &amp; Finalize</span>
               </button>
-              <button
-                type="button"
-                onClick={executeFinalize}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-aqua text-ocean-950 text-xs font-bold"
-              >
-                Finalize Anyway
-              </button>
+
+              <div className="flex flex-col sm:flex-row items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFinalizeWarning(false)}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-secondary"
+                >
+                  Review Register
+                </button>
+                <button
+                  type="button"
+                  onClick={executeFinalize}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 text-xs font-bold"
+                >
+                  Finalize As-Is ({notMarkedCount} Unmarked)
+                </button>
+              </div>
             </div>
           </div>
         </div>
