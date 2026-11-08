@@ -10,6 +10,11 @@ import {
   HelpCircle,
   Users,
   CheckCircle2,
+  ShieldAlert,
+  Sparkles,
+  Info,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -26,7 +31,7 @@ import {
   Pie,
 } from "recharts";
 import { Swimmer, SwimSession } from "@/types/database";
-import { getSwimmerSquadRank } from "@/lib/squad-ranks";
+import { getSwimmerSquadRank, ALL_SQUAD_ROLES } from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -48,6 +53,7 @@ export function AnalyticsClient({
   dashboardStats,
 }: AnalyticsClientProps) {
   const [selectedSwimmerId, setSelectedSwimmerId] = React.useState<string>("all");
+  const [showRankGuide, setShowRankGuide] = React.useState(false);
 
   // Chart data: Attendance Trend by session
   const trendData = sessions
@@ -321,17 +327,95 @@ export function AnalyticsClient({
 
       {/* Swimmer Consistency Streaks & Squad Ranks Table */}
       <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-border">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
           <div className="flex items-center gap-2">
             <Flame className="w-4 h-4 text-coral" />
             <h2 className="font-bold text-sm text-foreground">
               Squad Polla & Glory Leaderboard
             </h2>
           </div>
-          <span className="text-xs text-muted-foreground font-mono">
-            Official Squad Titles & Polla Risk Ratings
-          </span>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowRankGuide(!showRankGuide)}
+              className="px-3 py-1.5 rounded-xl border border-aqua/30 bg-aqua/10 text-aqua hover:bg-aqua/20 text-xs font-bold flex items-center gap-1.5 transition-all"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{showRankGuide ? "Hide Rank Guide" : "How Ranks & Roles Are Decided"}</span>
+              {showRankGuide ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </button>
+          </div>
         </div>
+
+        {/* Interactive How Ranks Are Decided Guide */}
+        {showRankGuide && (
+          <div className="p-5 rounded-2xl border border-aqua/30 bg-ocean-950/40 space-y-4 animate-in fade-in">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-extrabold text-foreground flex items-center gap-2">
+                  <span>🎓</span>
+                  <span>Official Squad Titles & Rank Decision Rules</span>
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  How attendance states (Present, Late, Excused, Absent), streaks, and punctuality decide squad titles.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+              {ALL_SQUAD_ROLES.map((role) => (
+                <div
+                  key={role.id}
+                  className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xl">{role.emoji}</span>
+                    <span
+                      className={cn(
+                        "text-[9px] uppercase font-extrabold px-1.5 py-0.5 rounded border",
+                        role.category === "elite"
+                          ? "bg-seafoam/10 text-seafoam border-seafoam/30"
+                          : role.category === "punctual"
+                          ? "bg-aqua/10 text-aqua border-aqua/30"
+                          : role.category === "excused"
+                          ? "bg-sky-400/10 text-sky-400 border-sky-400/30"
+                          : role.category === "late"
+                          ? "bg-amber-400/10 text-amber-400 border-amber-400/30"
+                          : role.category === "flaker"
+                          ? "bg-coral/10 text-coral border-coral/30"
+                          : "bg-secondary text-muted-foreground border-border"
+                      )}
+                    >
+                      {role.category}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h4 className="font-extrabold text-xs text-foreground">
+                      {role.title}
+                    </h4>
+                    <p className="text-[11px] text-aqua/90 font-medium">
+                      &ldquo;{role.badge}&rdquo;
+                    </p>
+                  </div>
+
+                  <p className="text-[11px] text-muted-foreground line-clamp-2">
+                    {role.description}
+                  </p>
+
+                  <div className="pt-1.5 border-t border-border/60 text-[10px] text-muted-foreground">
+                    <strong className="text-foreground">Criteria:</strong> {role.criteria}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
@@ -344,6 +428,7 @@ export function AnalyticsClient({
                 <th className="py-2.5 px-3">Polla Rating</th>
                 <th className="py-2.5 px-3">Present</th>
                 <th className="py-2.5 px-3">Late</th>
+                <th className="py-2.5 px-3">Excused</th>
                 <th className="py-2.5 px-3">Absent (Polla)</th>
               </tr>
             </thead>
@@ -363,16 +448,21 @@ export function AnalyticsClient({
                       )}
                     </td>
                     <td className="py-3 px-3">
-                      <span
-                        title={rank.description}
-                        className={cn(
-                          "text-[10px] font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 cursor-help",
-                          rank.colorScheme.pillBg
-                        )}
-                      >
-                        <span>{rank.emoji}</span>
-                        <span>{rank.title}</span>
-                      </span>
+                      <div>
+                        <span
+                          title={rank.description}
+                          className={cn(
+                            "text-[10px] font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 cursor-help",
+                            rank.colorScheme.pillBg
+                          )}
+                        >
+                          <span>{rank.emoji}</span>
+                          <span>{rank.title}</span>
+                        </span>
+                        <div className="text-[10px] text-muted-foreground/80 truncate max-w-[200px] mt-0.5">
+                          {rank.decisionReason}
+                        </div>
+                      </div>
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-2">
@@ -398,6 +488,7 @@ export function AnalyticsClient({
                     </td>
                     <td className="py-3 px-3 text-seafoam font-semibold">{s?.present || 0}</td>
                     <td className="py-3 px-3 text-amber-400 font-semibold">{s?.late || 0}</td>
+                    <td className="py-3 px-3 text-sky-400 font-semibold">{s?.excused || 0}</td>
                     <td className="py-3 px-3 text-coral font-extrabold">
                       {s?.absent || 0} {s?.absent && s.absent > 0 ? "🏃💨" : "🛡️"}
                     </td>

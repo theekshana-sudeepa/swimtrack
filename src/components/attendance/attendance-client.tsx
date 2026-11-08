@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -1408,7 +1409,7 @@ export function AttendanceClient({
               </button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
               <div className="p-3 rounded-xl bg-seafoam/10 border border-seafoam/20">
                 <p className="text-xl font-black text-seafoam">{presentCount}</p>
                 <p className="text-[11px] font-medium text-muted-foreground">Present</p>
@@ -1417,51 +1418,84 @@ export function AttendanceClient({
                 <p className="text-xl font-black text-amber-400">{lateCount}</p>
                 <p className="text-[11px] font-medium text-muted-foreground">Late</p>
               </div>
+              <div className="p-3 rounded-xl bg-sky-400/10 border border-sky-400/20">
+                <p className="text-xl font-black text-sky-400">{excusedCount}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Excused</p>
+              </div>
               <div className="p-3 rounded-xl bg-coral/10 border border-coral/20">
                 <p className="text-xl font-black text-coral">{absentCount}</p>
                 <p className="text-[11px] font-medium text-muted-foreground">Absent</p>
               </div>
-              <div className="p-3 rounded-xl bg-aqua/10 border border-aqua/20">
+              <div className="col-span-2 sm:col-span-1 p-3 rounded-xl bg-aqua/10 border border-aqua/20">
                 <p className="text-xl font-black text-aqua">{attendanceRate}%</p>
                 <p className="text-[11px] font-medium text-muted-foreground">Turnout</p>
               </div>
             </div>
 
-            {absentCount > 0 && (
-              <div className="p-3 rounded-xl border border-coral/30 bg-coral/5 space-y-1">
-                <p className="text-xs font-bold text-coral flex items-center gap-1.5">
-                  <span>🌴</span> Polla of the Day ({absentCount} absent)
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {attendance
-                    .filter((a) => a.status === "absent")
-                    .map((a) => a.swimmer?.full_name)
-                    .filter(Boolean)
-                    .join(", ")}
-                </p>
-              </div>
-            )}
+            {/* Session State Honors & Notes */}
+            <div className="space-y-2 pt-1 text-xs">
+              {excusedCount > 0 && (
+                <div className="p-2.5 rounded-xl border border-sky-400/30 bg-sky-400/5 space-y-1">
+                  <p className="font-bold text-sky-300 flex items-center gap-1.5">
+                    <span>🩹</span> Excused Absences ({excusedCount})
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    {attendance
+                      .filter((a) => a.status === "excused")
+                      .map((a) => {
+                        const reason = a.notes ? ` (${a.notes.replace(/^Excused:\s*/i, "")})` : "";
+                        return `${a.swimmer?.full_name || "Swimmer"}${reason}`;
+                      })
+                      .join(" • ")}
+                  </p>
+                </div>
+              )}
 
-            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRecapModal(false);
-                  window.print();
-                }}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-secondary flex items-center justify-center gap-1.5"
+              {absentCount > 0 && (
+                <div className="p-2.5 rounded-xl border border-coral/30 bg-coral/5 space-y-1">
+                  <p className="font-bold text-coral flex items-center gap-1.5">
+                    <span>🌴</span> Polla of the Day ({absentCount} absent)
+                  </p>
+                  <p className="text-muted-foreground">
+                    {attendance
+                      .filter((a) => a.status === "absent")
+                      .map((a) => a.swimmer?.full_name)
+                      .filter(Boolean)
+                      .join(", ")}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-border/80">
+              <Link
+                href={`/sessions/${session.id}`}
+                className="text-xs text-aqua hover:underline flex items-center gap-1 font-semibold"
               >
-                <Printer className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>Print Register</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleCopyWhatsAppRecap}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-seafoam text-ocean-950 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-seafoam/90 transition-all shadow-sm"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>Copy WhatsApp Recap</span>
-              </button>
+                <span>Full State Report &amp; Squad Roles &rarr;</span>
+              </Link>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRecapModal(false);
+                    window.print();
+                  }}
+                  className="flex-1 sm:flex-initial px-4 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-secondary flex items-center justify-center gap-1.5"
+                >
+                  <Printer className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span>Print</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyWhatsAppRecap}
+                  className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-seafoam text-ocean-950 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-seafoam/90 transition-all shadow-sm"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy WhatsApp</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

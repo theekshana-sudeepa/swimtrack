@@ -180,13 +180,18 @@ export function SwimmerPortalClient({
           </div>
 
           {/* Description & Polla Tag */}
-          <div className="p-4 rounded-2xl bg-secondary/30 border border-border/80 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <p className="text-muted-foreground leading-relaxed italic">
-              &ldquo;{squadRank.description}&rdquo;
-            </p>
-            <span className={cn("px-2.5 py-1 rounded-full text-[11px] font-extrabold shrink-0 border", squadRank.colorScheme.pillBg)}>
-              {squadRank.pollaTag}
-            </span>
+          <div className="p-4 rounded-2xl bg-secondary/30 border border-border/80 text-xs flex flex-col gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <p className="text-muted-foreground leading-relaxed italic">
+                &ldquo;{squadRank.description}&rdquo;
+              </p>
+              <span className={cn("px-2.5 py-1 rounded-full text-[11px] font-extrabold shrink-0 border self-start sm:self-auto", squadRank.colorScheme.pillBg)}>
+                {squadRank.pollaTag}
+              </span>
+            </div>
+            <div className="pt-2 border-t border-border/50 text-[11px] text-muted-foreground">
+              <strong className="text-foreground">How your title was decided:</strong> {squadRank.decisionReason}
+            </div>
           </div>
 
           {/* Core Stats Row */}

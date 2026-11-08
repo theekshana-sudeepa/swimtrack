@@ -154,6 +154,15 @@ export default async function SwimmerProfilePage({
             <p className="text-xs text-foreground/80 mt-1 max-w-xl italic leading-relaxed">
               &ldquo;{rank.description}&rdquo;
             </p>
+            <div className="mt-2.5 pt-2 border-t border-border/60 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+              <span>
+                <strong className="text-foreground">Decided by:</strong> {rank.decisionReason}
+              </span>
+              <span>&bull;</span>
+              <span>
+                <strong className="text-foreground">Criteria:</strong> {rank.criteria}
+              </span>
+            </div>
           </div>
         </div>
 
