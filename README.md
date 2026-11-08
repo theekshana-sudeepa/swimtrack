@@ -221,7 +221,7 @@ erDiagram
 
 ### 1. Clone & Install
 ```bash
-git clone https://github.com/your-username/SwimTrack.git
+git clone https://github.com/ThikkaBro/SwimTrack.git
 cd SwimTrack
 npm install
 ```

@@ -34,7 +34,7 @@ export default function PublicLandingPage() {
             <ThemeToggle />
 
             <a
-              href="https://github.com"
+              href="https://github.com/ThikkaBro/SwimTrack"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border bg-card/60 hover:bg-card text-foreground transition-all"
@@ -262,7 +262,7 @@ export default function PublicLandingPage() {
         <div className="container mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <SwimTrackLogo size="sm" showWordmark={false} />
-            <span>SwimTrack &bull; The Aquatic Control Room &bull; MIT License</span>
+            <span>SwimTrack &bull; The Aquatic Control Room &bull; PolyForm Noncommercial License</span>
           </div>
 
           <div className="flex items-center gap-6">
@@ -270,7 +270,7 @@ export default function PublicLandingPage() {
               Admin Login
             </Link>
             <a
-              href="https://github.com"
+              href="https://github.com/ThikkaBro/SwimTrack"
               target="_blank"
               rel="noreferrer"
               className="hover:text-foreground transition-colors"
