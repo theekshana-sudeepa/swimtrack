@@ -260,8 +260,18 @@ export function AttendanceClient({
 
   // Keep state synced if initialAttendance changes
   React.useEffect(() => {
-    setAttendance(initialAttendance);
-  }, [initialAttendance]);
+    setAttendance((prev) => {
+      // If there are pending in-flight updates, preserve them
+      if (pendingIds.size === 0) return initialAttendance;
+      return initialAttendance.map((rec) => {
+        if (pendingIds.has(rec.swimmer_id)) {
+          const current = prev.find((p) => p.swimmer_id === rec.swimmer_id);
+          return current || rec;
+        }
+        return rec;
+      });
+    });
+  }, [initialAttendance, pendingIds]);
 
   // Attendance Summary Metrics
   const presentCount = attendance.filter((a) => a.status === "present").length;
@@ -331,9 +341,9 @@ export function AttendanceClient({
       );
 
       if (!res.success) {
-        throw new Error("Update failed");
+        throw new Error(res.error || "Update failed");
       }
-    } catch {
+    } catch (err) {
       // Rollback on failure
       setAttendance((prev) =>
         prev.map((item) =>
@@ -342,7 +352,8 @@ export function AttendanceClient({
             : item
         )
       );
-      toast.error("Failed to save attendance change. Rolled back.");
+      const errMsg = err instanceof Error ? err.message : "Failed to save attendance change";
+      toast.error(`${errMsg}. Rolled back.`);
     } finally {
       setPendingIds((prev) => {
         const next = new Set(prev);

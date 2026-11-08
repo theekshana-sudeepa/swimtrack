@@ -263,6 +263,10 @@ export const SupabaseDB = {
   /**
    * Upserts an attendance record and writes an audit log trail.
    */
+  /**
+   * Upserts an attendance record into Supabase PostgreSQL.
+   * Backward-compatible with base schema even if geofence migration hasn't been run yet.
+   */
   async upsertAttendance(
     record: AttendanceRecord,
     actorId?: string,
@@ -271,31 +275,68 @@ export const SupabaseDB = {
     const supabase = getSupabaseAdminClient();
     if (!supabase) return;
     try {
-      await supabase.from("attendance").upsert(
-        {
-          id: record.id,
-          session_id: record.session_id,
-          swimmer_id: record.swimmer_id,
-          status: record.status,
-          notes: record.notes || null,
-          checkin_method: record.checkin_method || "coach_manual",
-          checkin_distance: record.checkin_distance || null,
-          checkin_accuracy: record.checkin_accuracy || null,
-          marked_at: record.marked_at || new Date().toISOString(),
-          marked_by: actorId && actorId.length === 36 ? actorId : null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "session_id,swimmer_id" }
-      );
+      const isValidUuid = (val?: string | null) =>
+        typeof val === "string" &&
+        val.length === 36 &&
+        val !== "00000000-0000-0000-0000-000000000000";
 
-      // Audit Log
+      // 1. Guaranteed Core Payload (Strictly verified columns in public.attendance)
+      const basePayload: Record<string, unknown> = {
+        session_id: record.session_id,
+        swimmer_id: record.swimmer_id,
+        status: record.status,
+        notes: record.notes || null,
+        marked_at: record.marked_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      if (isValidUuid(actorId)) {
+        basePayload.marked_by = actorId;
+      }
+      if (isValidUuid(record.id)) {
+        basePayload.id = record.id;
+      }
+
+      // Upsert base payload matching (session_id, swimmer_id) unique constraint
+      const { error: baseError } = await supabase
+        .from("attendance")
+        .upsert(basePayload, { onConflict: "session_id,swimmer_id" });
+
+      if (baseError) {
+        console.error("[SupabaseDB] Error upserting attendance base payload:", baseError);
+      } else {
+        // 2. Safely attempt updating geofence columns if present on the record
+        // This is non-fatal so if the migration isn't applied yet, standard attendance still succeeds 100%!
+        if (
+          record.checkin_method ||
+          (record.checkin_distance !== undefined && record.checkin_distance !== null) ||
+          (record.checkin_accuracy !== undefined && record.checkin_accuracy !== null)
+        ) {
+          try {
+            const geoPayload: Record<string, unknown> = {};
+            if (record.checkin_method) geoPayload.checkin_method = record.checkin_method;
+            if (record.checkin_distance != null) geoPayload.checkin_distance = record.checkin_distance;
+            if (record.checkin_accuracy != null) geoPayload.checkin_accuracy = record.checkin_accuracy;
+
+            await supabase
+              .from("attendance")
+              .update(geoPayload)
+              .eq("session_id", record.session_id)
+              .eq("swimmer_id", record.swimmer_id);
+          } catch {
+            // Geofence columns do not exist yet in live Supabase - safe to ignore
+          }
+        }
+      }
+
+      // 3. Private Audit Trail Log
       await supabase.from("attendance_audit_log").insert({
         session_id: record.session_id,
         swimmer_id: record.swimmer_id,
         old_status: "not_marked",
         new_status: record.status,
         change_reason: changeReason || record.notes || "Attendance status marked",
-        actor_id: actorId && actorId.length === 36 ? actorId : null,
+        actor_id: isValidUuid(actorId) ? actorId : null,
         created_at: new Date().toISOString(),
       });
     } catch (err) {
