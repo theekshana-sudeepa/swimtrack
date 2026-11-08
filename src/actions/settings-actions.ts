@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
+import { sanitizeString, sanitizeEmail } from "@/lib/security";
 
 /**
  * Wipes all demo/test attendance records, sessions, and swimmers
@@ -56,14 +57,19 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
 }> {
   await requireAdminSession();
 
-  const group_name = (formData.get("group_name") as string)?.trim() || "SwimTrack Club";
-  const default_pool = (formData.get("default_pool") as string)?.trim() || "";
-  const default_duration_minutes = parseInt(
-    (formData.get("default_duration_minutes") as string) || "60",
-    10
+  const group_name = sanitizeString(formData.get("group_name") as string, 100) || "SwimTrack Club";
+  const default_pool =
+    sanitizeString(formData.get("default_pool") as string, 150) ||
+    "Bandaranayake College Swimming Pool Complex";
+  const default_duration_minutes = Math.max(
+    15,
+    Math.min(
+      360,
+      parseInt((formData.get("default_duration_minutes") as string) || "105", 10) || 105
+    )
   );
   const admin_email =
-    (formData.get("admin_email") as string)?.trim() || "theekshanasudeepa4@gmail.com";
+    sanitizeEmail(formData.get("admin_email") as string) || "theekshanasudeepa4@gmail.com";
 
   try {
     DataStore.updateAppSetting("general", {

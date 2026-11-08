@@ -25,7 +25,15 @@ import {
 import { formatTime, cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-export function SessionListClient({ initialSessions }: { initialSessions: SwimSession[] }) {
+export function SessionListClient({
+  initialSessions,
+  defaultPool = "Bandaranayake College Swimming Pool Complex",
+  defaultDuration = 105,
+}: {
+  initialSessions: SwimSession[];
+  defaultPool?: string;
+  defaultDuration?: number;
+}) {
   const [sessions, setSessions] = React.useState<SwimSession[]>(initialSessions);
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [showCreateSingleModal, setShowCreateSingleModal] = React.useState(false);
@@ -307,7 +315,7 @@ export function SessionListClient({ initialSessions }: { initialSessions: SwimSe
                 <input
                   name="title"
                   required
-                  defaultValue="Morning Squad Lap Swim"
+                  defaultValue="Evening Squad Lap Swim"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
@@ -326,38 +334,41 @@ export function SessionListClient({ initialSessions }: { initialSessions: SwimSe
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block font-semibold text-foreground mb-1">
-                    Start Time *
+                    Start Time * (3:00 PM)
                   </label>
                   <input
                     name="start_time"
                     type="time"
                     required
-                    defaultValue="06:30"
-                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                    defaultValue="15:00"
+                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua font-mono font-semibold"
                   />
                 </div>
                 <div>
                   <label className="block font-semibold text-foreground mb-1">
-                    End Time *
+                    End Time * (4:45 PM)
                   </label>
                   <input
                     name="end_time"
                     type="time"
                     required
-                    defaultValue="08:00"
-                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                    defaultValue="16:45"
+                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua font-mono font-semibold"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-foreground mb-1">
-                  Pool / Location *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-foreground">
+                    Pool / Location *
+                  </label>
+                  <span className="text-[10px] text-aqua font-semibold">From Saved Settings</span>
+                </div>
                 <input
                   name="location"
                   required
-                  defaultValue="Royal College Aquatic Complex, Colombo"
+                  defaultValue={defaultPool}
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
@@ -417,7 +428,7 @@ export function SessionListClient({ initialSessions }: { initialSessions: SwimSe
                 <input
                   name="title"
                   required
-                  defaultValue="Saturday Morning Endurance Squad"
+                  defaultValue="Evening Squad Lap Swim"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
@@ -444,26 +455,26 @@ export function SessionListClient({ initialSessions }: { initialSessions: SwimSe
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block font-semibold text-foreground mb-1">
-                    Start Time *
+                    Start Time * (3:00 PM)
                   </label>
                   <input
                     name="start_time"
                     type="time"
                     required
-                    defaultValue="06:30"
-                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                    defaultValue="15:00"
+                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua font-mono font-semibold"
                   />
                 </div>
                 <div>
                   <label className="block font-semibold text-foreground mb-1">
-                    End Time *
+                    End Time * (4:45 PM)
                   </label>
                   <input
                     name="end_time"
                     type="time"
                     required
-                    defaultValue="08:00"
-                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+                    defaultValue="16:45"
+                    className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua font-mono font-semibold"
                   />
                 </div>
               </div>
@@ -496,13 +507,16 @@ export function SessionListClient({ initialSessions }: { initialSessions: SwimSe
               </div>
 
               <div>
-                <label className="block font-semibold text-foreground mb-1">
-                  Pool / Location *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-foreground">
+                    Pool / Location *
+                  </label>
+                  <span className="text-[10px] text-aqua font-semibold">From Saved Settings</span>
+                </div>
                 <input
                   name="location"
                   required
-                  defaultValue="Royal College Aquatic Complex, Colombo"
+                  defaultValue={defaultPool}
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>

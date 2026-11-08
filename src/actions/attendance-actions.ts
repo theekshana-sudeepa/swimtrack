@@ -5,6 +5,7 @@ import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
 import { AttendanceStatus } from "@/types/database";
+import { sanitizeString, sanitizeEmail, sanitizePhone } from "@/lib/security";
 
 export async function updateAttendanceStatusAction(
   sessionId: string,
@@ -13,17 +14,18 @@ export async function updateAttendanceStatusAction(
   notes?: string
 ) {
   const admin = await requireAdminSession();
+  const cleanNotes = notes ? sanitizeString(notes, 500) : undefined;
 
   const result = DataStore.updateAttendanceStatus(
     sessionId,
     swimmerId,
     status,
-    notes,
+    cleanNotes,
     admin.id
   );
 
   // Persist directly to Supabase Postgres database & audit trail
-  await SupabaseDB.upsertAttendance(result.record, admin.id, notes);
+  await SupabaseDB.upsertAttendance(result.record, admin.id, cleanNotes);
 
   revalidatePath("/attendance");
   revalidatePath(`/sessions/${sessionId}`);
@@ -94,15 +96,20 @@ export async function addSwimmerToSessionAction(
     return { success: false, error: "Session not found." };
   }
 
-  const cleanName = swimmerData.full_name?.trim();
+  const cleanName = sanitizeString(swimmerData.full_name, 100);
+  const cleanNickname = sanitizeString(swimmerData.nickname, 50) || undefined;
+  const cleanEmail = sanitizeEmail(swimmerData.email) || undefined;
+  const cleanPhone = sanitizePhone(swimmerData.phone) || undefined;
+  const cleanNotes = sanitizeString(swimmerData.notes, 500) || undefined;
+
   if (!cleanName || cleanName.length < 2) {
     return { success: false, error: "Please enter a valid swimmer name (at least 2 characters)." };
   }
 
   // 1. Check if swimmer already exists
   const existingList = DataStore.getSwimmers({ status: "all" });
-  let swimmer = swimmerData.email
-    ? existingList.find((s) => s.email && s.email.toLowerCase() === swimmerData.email!.toLowerCase())
+  let swimmer = cleanEmail
+    ? existingList.find((s) => s.email && s.email.toLowerCase() === cleanEmail.toLowerCase())
     : null;
 
   if (!swimmer) {
@@ -113,11 +120,11 @@ export async function addSwimmerToSessionAction(
     // 2. Create new swimmer
     swimmer = DataStore.createSwimmer({
       full_name: cleanName,
-      nickname: swimmerData.nickname?.trim() || undefined,
-      email: swimmerData.email?.trim() || undefined,
-      phone: swimmerData.phone?.trim() || undefined,
-      notes: swimmerData.notes?.trim() || undefined,
-      email_reminders_enabled: swimmerData.email ? true : false,
+      nickname: cleanNickname,
+      email: cleanEmail,
+      phone: cleanPhone,
+      notes: cleanNotes,
+      email_reminders_enabled: cleanEmail ? true : false,
     });
     await SupabaseDB.insertSwimmer(swimmer);
   }
@@ -127,14 +134,14 @@ export async function addSwimmerToSessionAction(
     sessionId,
     swimmer.id,
     swimmerData.status || "present",
-    swimmerData.notes,
+    cleanNotes,
     admin.id
   );
 
   await SupabaseDB.upsertAttendance(
     result.record,
     admin.id,
-    "Added directly to session register"
+    cleanNotes || "Added directly to session register"
   );
 
   revalidatePath("/attendance");

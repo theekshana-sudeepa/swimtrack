@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { getSupabaseClient } from "./supabase-client";
+import { timingSafeMatch } from "./security";
 
 export const ADMIN_COOKIE_NAME = "swimtrack_admin_session";
 export const DEMO_ADMIN_TOKEN = "swimtrack_demo_admin_authenticated_2026";
@@ -48,8 +49,8 @@ export async function getAdminSession(): Promise<AdminUser | null> {
     return null;
   }
 
-  // Check demo session token
-  if (sessionToken === DEMO_ADMIN_TOKEN) {
+  // Check demo session token with timing-safe comparison
+  if (timingSafeMatch(sessionToken, DEMO_ADMIN_TOKEN)) {
     return {
       id: "demo-admin-id",
       email: process.env.ADMIN_EMAIL || "admin@example.com",

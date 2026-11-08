@@ -1,25 +1,28 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
 import { sendWelcomeEmail, sendAdminNewSwimmerAlert } from "@/lib/resend-service";
 import { Swimmer } from "@/types/database";
+import { sanitizeString, sanitizeEmail, sanitizePhone, extractClientIp } from "@/lib/security";
+import { joinRateLimiter } from "@/lib/rate-limiter";
 
 export async function createSwimmerAction(formData: FormData) {
   await requireAdminSession();
 
-  const full_name = (formData.get("full_name") as string)?.trim();
-  const nickname = (formData.get("nickname") as string)?.trim() || undefined;
-  const email = (formData.get("email") as string)?.trim() || undefined;
-  const phone = (formData.get("phone") as string)?.trim() || undefined;
-  const notes = (formData.get("notes") as string)?.trim() || undefined;
+  const full_name = sanitizeString(formData.get("full_name") as string, 100);
+  const nickname = sanitizeString(formData.get("nickname") as string, 50) || undefined;
+  const email = sanitizeEmail(formData.get("email") as string) || undefined;
+  const phone = sanitizePhone(formData.get("phone") as string) || undefined;
+  const notes = sanitizeString(formData.get("notes") as string, 500) || undefined;
   const avatar_color = (formData.get("avatar_color") as string) || "ocean";
   const email_reminders_enabled = formData.get("email_reminders_enabled") === "on";
 
-  if (!full_name) {
-    return { error: "Swimmer's full name is required." };
+  if (!full_name || full_name.length < 2) {
+    return { error: "Please enter a valid swimmer name (at least 2 characters)." };
   }
 
   const swimmer = DataStore.createSwimmer({
@@ -61,16 +64,16 @@ export async function createSwimmerAction(formData: FormData) {
 export async function updateSwimmerAction(id: string, formData: FormData) {
   await requireAdminSession();
 
-  const full_name = (formData.get("full_name") as string)?.trim();
-  const nickname = (formData.get("nickname") as string)?.trim() || undefined;
-  const email = (formData.get("email") as string)?.trim() || undefined;
-  const phone = (formData.get("phone") as string)?.trim() || undefined;
-  const notes = (formData.get("notes") as string)?.trim() || undefined;
+  const full_name = sanitizeString(formData.get("full_name") as string, 100);
+  const nickname = sanitizeString(formData.get("nickname") as string, 50) || undefined;
+  const email = sanitizeEmail(formData.get("email") as string) || undefined;
+  const phone = sanitizePhone(formData.get("phone") as string) || undefined;
+  const notes = sanitizeString(formData.get("notes") as string, 500) || undefined;
   const avatar_color = (formData.get("avatar_color") as string) || undefined;
   const email_reminders_enabled = formData.get("email_reminders_enabled") === "on";
 
-  if (!full_name) {
-    return { error: "Swimmer's full name is required." };
+  if (!full_name || full_name.length < 2) {
+    return { error: "Please enter a valid swimmer name (at least 2 characters)." };
   }
 
   const updated = DataStore.updateSwimmer(id, {
@@ -131,13 +134,27 @@ export async function joinSquadAction(formData: FormData): Promise<{
   error?: string;
   isExisting?: boolean;
 }> {
-  const full_name = (formData.get("full_name") as string)?.trim();
-  const nickname = (formData.get("nickname") as string)?.trim() || undefined;
-  const email = (formData.get("email") as string)?.trim() || undefined;
-  const phone = (formData.get("phone") as string)?.trim() || undefined;
+  // Rate limiting against registration floods/spam
+  const headerList = await headers();
+  const clientIp = extractClientIp(headerList);
+  const rateKey = `join_${clientIp}`;
+  const rateCheck = joinRateLimiter.check(rateKey);
+
+  if (!rateCheck.allowed) {
+    return {
+      success: false,
+      error: `Too many registration attempts from this network. Please wait ${Math.ceil(rateCheck.retryAfterSeconds / 60)} minutes before trying again.`,
+    };
+  }
+
+  const full_name = sanitizeString(formData.get("full_name") as string, 100);
+  const nickname = sanitizeString(formData.get("nickname") as string, 50) || undefined;
+  const email = sanitizeEmail(formData.get("email") as string) || undefined;
+  const phone = sanitizePhone(formData.get("phone") as string) || undefined;
   const email_reminders_enabled = formData.get("email_reminders_enabled") === "on";
 
   if (!full_name || full_name.length < 2) {
+    joinRateLimiter.recordFailure(rateKey);
     return { success: false, error: "Please enter your full name (at least 2 characters)." };
   }
 
@@ -224,6 +241,8 @@ export async function joinSquadAction(formData: FormData): Promise<{
   revalidatePath("/swimmers");
   revalidatePath("/attendance");
   revalidatePath("/dashboard");
+
+  joinRateLimiter.reset(rateKey);
 
   return { success: true, swimmer, isExisting };
 }

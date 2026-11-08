@@ -16,6 +16,16 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const adminCookie = request.cookies.get("swimtrack_admin_session")?.value;
 
+  // Sanity check on adminCookie: reject oversized, suspicious or malformed tokens
+  const isCookieSuspicious =
+    adminCookie && (adminCookie.length > 4096 || /[^\w\-.:]/.test(adminCookie));
+
+  if (isCookieSuspicious) {
+    const response = NextResponse.redirect(new URL("/login", request.url));
+    response.cookies.delete("swimtrack_admin_session");
+    return response;
+  }
+
   const isPrivateRoute = PRIVATE_ROUTES.some((route) =>
     pathname === route || pathname.startsWith(`${route}/`)
   );
@@ -36,7 +46,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  return response;
 }
 
 export const config = {

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DataStore } from "@/lib/data-store";
 import { sendSessionReminder } from "@/lib/resend-service";
+import { timingSafeMatch } from "@/lib/security";
 
 export async function GET(request: NextRequest) {
-  // 1. Verify Vercel Cron Secret authorization
+  // 1. Verify Vercel Cron Secret authorization with timing-safe comparison
   const authHeader = request.headers.get("authorization");
   const expectedSecret = process.env.CRON_SECRET;
 
-  if (expectedSecret && (!authHeader || authHeader !== `Bearer ${expectedSecret}`)) {
+  if (expectedSecret && (!authHeader || !timingSafeMatch(authHeader, `Bearer ${expectedSecret}`))) {
     return NextResponse.json(
       { error: "Unauthorized: Invalid or missing CRON_SECRET authorization." },
       { status: 401 }

@@ -7,7 +7,20 @@ export const dynamic = "force-dynamic";
 export default async function SessionsPage() {
   await DataStore.syncFromSupabase();
   const sessions = DataStore.getSessions({ status: "all" });
+  const settings = DataStore.getAppSettings();
+  const generalVal = settings.general?.value as
+    | { default_pool?: string; default_duration_minutes?: number }
+    | undefined;
 
-  return <SessionListClient initialSessions={sessions} />;
+  const defaultPool = generalVal?.default_pool || "Bandaranayake College Swimming Pool Complex";
+  const defaultDuration = Number(generalVal?.default_duration_minutes) || 105;
+
+  return (
+    <SessionListClient
+      initialSessions={sessions}
+      defaultPool={defaultPool}
+      defaultDuration={defaultDuration}
+    />
+  );
 }
 

@@ -4,16 +4,17 @@ import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
+import { sanitizeString } from "@/lib/security";
 
 export async function createSessionAction(formData: FormData) {
   await requireAdminSession();
 
-  const title = (formData.get("title") as string)?.trim();
+  const title = sanitizeString(formData.get("title") as string, 120);
   const date = (formData.get("date") as string)?.trim();
   const start_time = (formData.get("start_time") as string)?.trim();
   const end_time = (formData.get("end_time") as string)?.trim();
-  const location = (formData.get("location") as string)?.trim();
-  const notes = (formData.get("notes") as string)?.trim() || undefined;
+  const location = sanitizeString(formData.get("location") as string, 150);
+  const notes = sanitizeString(formData.get("notes") as string, 500) || undefined;
 
   if (!title || !date || !start_time || !end_time || !location) {
     return { error: "Please fill in all required session fields." };
@@ -42,8 +43,8 @@ export async function createSessionAction(formData: FormData) {
 export async function createSeriesAction(formData: FormData) {
   await requireAdminSession();
 
-  const title = (formData.get("title") as string)?.trim();
-  const location = (formData.get("location") as string)?.trim();
+  const title = sanitizeString(formData.get("title") as string, 120);
+  const location = sanitizeString(formData.get("location") as string, 150);
   const day_of_week = parseInt(formData.get("day_of_week") as string, 10);
   const start_time = (formData.get("start_time") as string)?.trim();
   const end_time = (formData.get("end_time") as string)?.trim();

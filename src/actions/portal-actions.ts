@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
+import { sanitizeString } from "@/lib/security";
+import { chalkboardRateLimiter } from "@/lib/rate-limiter";
 
 /**
  * 1-Tap RSVP submission from the Swimmer Pass portal.
@@ -24,11 +26,13 @@ export async function submitRsvpAction(
     return { success: false, error: "Swimming session not found." };
   }
 
+  const cleanReason = reason ? sanitizeString(reason, 200) : undefined;
+
   const record = DataStore.submitSwimmerRsvp(
     swimmer.id,
     sessionId,
     status,
-    reason?.trim() || undefined
+    cleanReason
   );
 
   // Persist directly to Supabase
@@ -36,7 +40,7 @@ export async function submitRsvpAction(
     await SupabaseDB.upsertAttendance(
       record,
       undefined,
-      reason ? `RSVP: ${status} (${reason})` : `RSVP: ${status}`
+      cleanReason ? `RSVP: ${status} (${cleanReason})` : `RSVP: ${status}`
     );
   }
 
@@ -57,13 +61,18 @@ export async function postChalkboardMessageAction(token: string, content: string
     return { success: false, error: "Invalid swimmer pass token." };
   }
 
-  const cleanContent = content?.trim();
-  if (!cleanContent || cleanContent.length < 2) {
-    return { success: false, error: "Message must be at least 2 characters." };
+  // Rate limiting against spamming the squad chalkboard
+  const rateCheck = chalkboardRateLimiter.check(`chalk_${token}`);
+  if (!rateCheck.allowed) {
+    return {
+      success: false,
+      error: `Posting too quickly. Please wait ${rateCheck.retryAfterSeconds} seconds before posting again.`,
+    };
   }
 
-  if (cleanContent.length > 280) {
-    return { success: false, error: "Message cannot exceed 280 characters." };
+  const cleanContent = sanitizeString(content, 280);
+  if (!cleanContent || cleanContent.length < 2) {
+    return { success: false, error: "Message must be at least 2 characters." };
   }
 
   const authorName = swimmer.nickname
@@ -76,6 +85,8 @@ export async function postChalkboardMessageAction(token: string, content: string
     author_swimmer_id: swimmer.id,
     is_admin: false,
   });
+
+  chalkboardRateLimiter.recordFailure(`chalk_${token}`);
 
   revalidatePath(`/portal/${token}`);
 
