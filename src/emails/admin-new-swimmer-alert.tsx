@@ -23,9 +23,9 @@ interface AdminNewSwimmerAlertEmailProps {
 }
 
 export default function AdminNewSwimmerAlertEmail({
-  swimmerName = "Kasun Perera",
-  nickname = "Sharky",
-  email = "kasun@example.com",
+  swimmerName = "Laki Polla",
+  nickname = "Polla King",
+  email = "lakipolla@pollamail.com",
   phone = "+94 77 123 4567",
   enrolledAt = new Date().toLocaleString("en-US", { timeZone: "Asia/Colombo" }),
   adminSwimmerUrl = "https://swimtrack.app/swimmers",
@@ -237,3 +237,4 @@ const copyrightStyle: React.CSSProperties = {
   color: "#7e9cb0",
   margin: 0,
 };
+

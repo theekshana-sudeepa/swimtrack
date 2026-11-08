@@ -118,7 +118,7 @@ export default function JoinSquadPage() {
                     name="full_name"
                     type="text"
                     required
-                    placeholder="e.g. Kasun Perera"
+                    placeholder="e.g. Laki Polla"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-secondary/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-aqua transition-all placeholder:text-muted-foreground/60"
                   />
                 </div>
@@ -136,7 +136,7 @@ export default function JoinSquadPage() {
                     id="nickname"
                     name="nickname"
                     type="text"
-                    placeholder="e.g. Torpedo, Sharky, KP"
+                    placeholder="e.g. Polla, Chief Dodger, Snooze King"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-secondary/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-aqua transition-all placeholder:text-muted-foreground/60"
                   />
                 </div>
@@ -155,7 +155,7 @@ export default function JoinSquadPage() {
                     name="email"
                     type="email"
                     required
-                    placeholder="e.g. kasun@example.com"
+                    placeholder="e.g. lakipolla@pollamail.com"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-secondary/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-aqua transition-all placeholder:text-muted-foreground/60"
                   />
                 </div>
@@ -173,7 +173,7 @@ export default function JoinSquadPage() {
                     id="phone"
                     name="phone"
                     type="tel"
-                    placeholder="e.g. +94 77 123 4567"
+                    placeholder="e.g. +94 77 123 4567 (Call 5x to wake up)"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-secondary/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-aqua transition-all placeholder:text-muted-foreground/60"
                   />
                 </div>

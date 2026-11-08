@@ -353,13 +353,13 @@ export function ReminderClient({
                     📋 Member Credentials
                   </div>
                   <div className="text-muted-foreground">
-                    <strong>Full Name:</strong> Kasun Jayasuriya (&ldquo;Speedy Shark&rdquo;)
+                    <strong>Full Name:</strong> Laki Polla (&ldquo;Polla King&rdquo;)
                   </div>
                   <div className="text-muted-foreground">
-                    <strong>Email:</strong> kasun.swim@example.com
+                    <strong>Email:</strong> lakipolla@pollamail.com
                   </div>
                   <div className="text-muted-foreground">
-                    <strong>WhatsApp:</strong> +94 77 987 6543
+                    <strong>WhatsApp:</strong> +94 77 123 4567
                   </div>
                   <div className="text-muted-foreground">
                     <strong>Assigned Persona:</strong> Eager Cadet 🏊 (Zero-Polla)

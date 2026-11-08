@@ -427,7 +427,7 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                 <input
                   name="full_name"
                   required
-                  placeholder="e.g. Liam Perera"
+                  placeholder="e.g. Laki Polla"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
@@ -438,7 +438,7 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                 </label>
                 <input
                   name="nickname"
-                  placeholder="e.g. Liam"
+                  placeholder="e.g. Polla, Chief Dodger"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
@@ -450,7 +450,7 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                 <input
                   name="email"
                   type="email"
-                  placeholder="e.g. liam@example.test"
+                  placeholder="e.g. lakipolla@pollamail.com"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
@@ -473,7 +473,7 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                 <textarea
                   name="notes"
                   rows={2}
-                  placeholder="e.g. Distance lanes, preferred stroke..."
+                  placeholder="e.g. Loves backstroke, notorious for 5 AM polla..."
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
