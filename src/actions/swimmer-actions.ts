@@ -31,6 +31,15 @@ export async function createSwimmerAction(formData: FormData) {
     email_reminders_enabled: email ? email_reminders_enabled : false,
   });
 
+  // Automatically dispatch Welcome Pass email if email provided
+  if (email && email.includes("@")) {
+    try {
+      await sendWelcomeEmail({ swimmer });
+    } catch (e) {
+      console.error("Welcome email failed:", e);
+    }
+  }
+
   revalidatePath("/swimmers");
   revalidatePath("/attendance");
   revalidatePath("/dashboard");
@@ -155,8 +164,8 @@ export async function joinSquadAction(formData: FormData): Promise<{
     });
   }
 
-  // Dispatch welcome email if email is provided
-  if (email && email.includes("@") && email_reminders_enabled) {
+  // Dispatch welcome email whenever an email address is provided
+  if (email && email.includes("@")) {
     try {
       await sendWelcomeEmail({ swimmer });
     } catch (err) {

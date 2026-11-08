@@ -200,9 +200,29 @@ export async function sendWelcomeEmail({
   const portalUrl = `${appUrl}/portal/${swimmerToken}`;
 
   if (!resend) {
+    const isTest = process.env.NODE_ENV === "test" || process.env.VITEST;
+    if (isTest) {
+      return {
+        success: true,
+        messageId: `sim_welcome_${Date.now()}`,
+      };
+    }
+
+    const errorMsg =
+      "RESEND_API_KEY is missing or invalid in Vercel environment variables. Please configure your Resend API key to deliver real emails.";
+    DataStore.recordReminderDelivery({
+      claim_key: `welcome:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: swimmer.email,
+      status: "failed",
+      error_message: errorMsg,
+    });
+
     return {
-      success: true,
-      messageId: `sim_welcome_${Date.now()}`,
+      success: false,
+      error: errorMsg,
     };
   }
 
@@ -222,17 +242,45 @@ export async function sendWelcomeEmail({
         react: emailElement,
       },
       {
-        idempotencyKey: `swimtrack/welcome/${swimmer.id}`,
+        idempotencyKey: `swimtrack/welcome/${swimmer.id}/${Date.now()}`,
       }
     );
 
     if (error) {
+      DataStore.recordReminderDelivery({
+        claim_key: `welcome:${swimmer.id}:${Date.now()}`,
+        session_id: "00000000-0000-0000-0000-000000000000",
+        swimmer_id: swimmer.id,
+        reminder_type: "manual",
+        recipient_email: swimmer.email,
+        status: "failed",
+        error_message: error.message,
+      });
       return { success: false, error: error.message };
     }
+
+    DataStore.recordReminderDelivery({
+      claim_key: `welcome:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: swimmer.email,
+      status: "sent",
+      provider_message_id: data?.id,
+    });
 
     return { success: true, messageId: data?.id };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Failed to dispatch welcome email";
+    DataStore.recordReminderDelivery({
+      claim_key: `welcome:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: swimmer.email,
+      status: "failed",
+      error_message: errorMsg,
+    });
     return { success: false, error: errorMsg };
   }
 }
