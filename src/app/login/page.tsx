@@ -88,7 +88,6 @@ function LoginForm() {
               name="email"
               type="email"
               required
-              defaultValue="admin@example.com"
               placeholder="admin@example.com"
               className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-border bg-secondary/40 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-aqua transition-all"
             />
@@ -109,7 +108,6 @@ function LoginForm() {
               name="password"
               type="password"
               required
-              defaultValue="swimtrack2026"
               placeholder="••••••••••••"
               className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-border bg-secondary/40 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-aqua transition-all"
             />
@@ -132,23 +130,25 @@ function LoginForm() {
         </button>
       </form>
 
-      {/* Evaluation Quick Demo Access Button */}
-      <div className="mt-6 pt-6 border-t border-border/80 text-center">
-        <p className="text-xs text-muted-foreground mb-3">
-          Evaluating this open-source repository?
-        </p>
-        <button
-          type="button"
-          onClick={handleDemoLogin}
-          disabled={isSubmitting || isDemoSubmitting}
-          className="w-full py-2.5 px-4 rounded-xl border border-seafoam/40 bg-seafoam/10 hover:bg-seafoam/20 text-seafoam font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
-        >
-          <ShieldCheck className="w-4 h-4 text-seafoam" />
-          <span>
-            {isDemoSubmitting ? "Entering..." : "Instant Demo Admin Sign In"}
-          </span>
-        </button>
-      </div>
+      {/* Evaluation Quick Demo Access Button (Only visible if explicitly enabled via environment) */}
+      {process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true" && (
+        <div className="mt-6 pt-6 border-t border-border/80 text-center">
+          <p className="text-xs text-muted-foreground mb-3">
+            Evaluation Demo Mode Enabled
+          </p>
+          <button
+            type="button"
+            onClick={handleDemoLogin}
+            disabled={isSubmitting || isDemoSubmitting}
+            className="w-full py-2.5 px-4 rounded-xl border border-seafoam/40 bg-seafoam/10 hover:bg-seafoam/20 text-seafoam font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+          >
+            <ShieldCheck className="w-4 h-4 text-seafoam" />
+            <span>
+              {isDemoSubmitting ? "Entering..." : "Instant Demo Admin Sign In"}
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

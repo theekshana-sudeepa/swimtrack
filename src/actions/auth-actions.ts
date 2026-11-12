@@ -37,14 +37,18 @@ export async function loginAction(
     };
   }
 
-  // 1. Standalone Demo Mode fallback
+  // 1. Standalone Demo / Environment Password Mode fallback
   if (isDemoMode()) {
     const adminEmail = (process.env.ADMIN_EMAIL || "admin@example.com").toLowerCase();
     const isEmailMatch = timingSafeMatch(email, adminEmail);
-    const isPassMatch =
-      timingSafeMatch(password, "swimtrack2026") ||
-      timingSafeMatch(password, "password") ||
-      (password.length >= 6 && isEmailMatch);
+
+    // Strict password match: if ADMIN_PASSWORD is set, require that exact secret!
+    // In local dev without ADMIN_PASSWORD, allow default 'swimtrack2026'
+    const expectedPassword = process.env.ADMIN_PASSWORD;
+    const isPassMatch = expectedPassword
+      ? timingSafeMatch(password, expectedPassword)
+      : process.env.NODE_ENV !== "production" &&
+        (timingSafeMatch(password, "swimtrack2026") || timingSafeMatch(password, "password"));
 
     if (isEmailMatch && isPassMatch) {
       loginRateLimiter.reset(rateLimitKey);
@@ -61,7 +65,7 @@ export async function loginAction(
     } else {
       loginRateLimiter.recordFailure(rateLimitKey);
       return {
-        error: `Invalid credentials. For evaluation demo mode, use: ${adminEmail} and password: swimtrack2026`,
+        error: "Invalid administrator email address or password.",
       };
     }
   }
@@ -107,6 +111,11 @@ export async function loginAction(
 }
 
 export async function demoLoginAction(redirectTo = "/dashboard") {
+  // Prevent unauthorized bypass on hosted/production environments
+  if (process.env.NODE_ENV === "production" && process.env.ENABLE_DEMO_LOGIN !== "true") {
+    return { error: "Instant demo bypass is disabled on production. Please log in with admin credentials." };
+  }
+
   const cookieStore = await cookies();
   cookieStore.set(ADMIN_COOKIE_NAME, DEMO_ADMIN_TOKEN, {
     httpOnly: true,
