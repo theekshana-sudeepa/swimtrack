@@ -370,3 +370,4 @@ const copyrightStyle: React.CSSProperties = {
   color: "#7e9cb0",
   margin: 0,
 };
+
