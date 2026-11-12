@@ -18,6 +18,10 @@ import {
   X,
   AlertCircle,
   HelpCircle,
+  BarChart3,
+  Users,
+  Trophy,
+  Award,
 } from "lucide-react";
 import { Swimmer, SwimSession, SquadMessage } from "@/types/database";
 import { getSwimmerSquadRank } from "@/lib/squad-ranks";
@@ -43,6 +47,12 @@ interface SwimmerPortalClientProps {
   nextSession: SwimSession | null;
   history: HistoryRecord[];
   initialMessages: SquadMessage[];
+  squadFriends?: Swimmer[];
+  squadStats?: {
+    overallRate: number;
+    completedSessions: number;
+    activeSwimmers: number;
+  };
 }
 
 export function SwimmerPortalClient({
@@ -51,7 +61,22 @@ export function SwimmerPortalClient({
   nextSession,
   history,
   initialMessages,
+  squadFriends = [],
+  squadStats,
 }: SwimmerPortalClientProps) {
+  // Friends Leaderboard & Analytics (Ranked by attendance rate & active streak)
+  const sortedFriends = React.useMemo(() => {
+    if (!squadFriends || squadFriends.length === 0) return [];
+    return [...squadFriends].sort((a, b) => {
+      const rateA = a.attendance_stats?.rate ?? 0;
+      const rateB = b.attendance_stats?.rate ?? 0;
+      if (rateB !== rateA) return rateB - rateA;
+      const streakA = a.attendance_stats?.currentStreak ?? 0;
+      const streakB = b.attendance_stats?.currentStreak ?? 0;
+      return streakB - streakA;
+    });
+  }, [squadFriends]);
+
   // Squad Persona Rank Calculation
   const squadRank = getSwimmerSquadRank(swimmer.attendance_stats);
 
@@ -413,6 +438,137 @@ export function SwimmerPortalClient({
             )}
           </div>
         </div>
+
+        {/* Squad Friends & Analytics Leaderboard */}
+        {sortedFriends.length > 0 && (
+          <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-aqua" />
+                <h2 className="font-extrabold text-base text-foreground">
+                  Squad Friends &amp; Analytics 📊
+                </h2>
+              </div>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                {sortedFriends.length} Squad Members
+              </span>
+            </div>
+
+            {/* Squad Overview Stats Pills */}
+            {squadStats && (
+              <div className="grid grid-cols-3 gap-2.5 text-center">
+                <div className="p-3 rounded-2xl bg-secondary/40 border border-border/70">
+                  <div className="text-lg sm:text-xl font-black text-aqua">
+                    {squadStats.overallRate}%
+                  </div>
+                  <div className="text-[10px] font-semibold text-muted-foreground mt-0.5">
+                    Squad Attendance
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-secondary/40 border border-border/70">
+                  <div className="text-lg sm:text-xl font-black text-seafoam">
+                    {squadStats.completedSessions}
+                  </div>
+                  <div className="text-[10px] font-semibold text-muted-foreground mt-0.5">
+                    Practices Held
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-secondary/40 border border-border/70">
+                  <div className="text-lg sm:text-xl font-black text-foreground">
+                    {squadStats.activeSwimmers}
+                  </div>
+                  <div className="text-[10px] font-semibold text-muted-foreground mt-0.5">
+                    Active Friends
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Leaderboard Table / Card List */}
+            <div className="space-y-2 pt-1">
+              <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between px-1">
+                <span>Rank &amp; Swimmer</span>
+                <span>Streak &bull; Attendance</span>
+              </div>
+
+              <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                {sortedFriends.map((friend, index) => {
+                  const isCurrent = friend.id === swimmer.id;
+                  const friendRank = getSwimmerSquadRank(friend.attendance_stats);
+                  const friendName = friend.nickname
+                    ? `${friend.full_name} ("${friend.nickname}")`
+                    : friend.full_name;
+
+                  return (
+                    <div
+                      key={friend.id}
+                      className={cn(
+                        "p-3 rounded-2xl border text-xs flex items-center justify-between gap-3 transition-all",
+                        isCurrent
+                          ? "bg-aqua/10 border-aqua/40 ring-1 ring-aqua/30 shadow-sm"
+                          : "bg-secondary/25 border-border/60"
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {/* Position badge */}
+                        <div
+                          className={cn(
+                            "w-6 h-6 rounded-lg flex items-center justify-center font-black text-[11px] shrink-0",
+                            index === 0
+                              ? "bg-amber-400 text-ocean-950 font-black"
+                              : index === 1
+                              ? "bg-slate-300 text-ocean-950"
+                              : index === 2
+                              ? "bg-amber-600/80 text-white"
+                              : "bg-secondary text-muted-foreground"
+                          )}
+                        >
+                          {index + 1}
+                        </div>
+
+                        {/* Name & persona */}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={cn(
+                                "font-bold text-xs truncate",
+                                isCurrent ? "text-aqua" : "text-foreground"
+                              )}
+                            >
+                              {friendName}
+                            </span>
+                            {isCurrent && (
+                              <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.5 rounded-full bg-aqua/20 text-aqua border border-aqua/30">
+                                You
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <span>{friendRank.emoji}</span>
+                            <span>{friendRank.title}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Stats: Streak & Rate */}
+                      <div className="flex items-center gap-3 shrink-0 text-right">
+                        <div className="flex items-center gap-1 text-[11px] font-bold text-amber-400">
+                          <Flame className="w-3.5 h-3.5 fill-amber-400" />
+                          <span>{friend.attendance_stats?.currentStreak || 0}</span>
+                        </div>
+                        <div className="min-w-[42px] text-right font-mono font-bold text-xs text-foreground">
+                          {friend.attendance_stats?.rate || 0}%
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* My Past Attendance Timeline */}
         <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">

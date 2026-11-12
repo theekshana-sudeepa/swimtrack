@@ -875,6 +875,13 @@ export const DataStore = {
   getSwimmerByToken(token: string): Swimmer | null {
     if (!token) return null;
     const cleanToken = token.trim();
+    const adminEmail = (process.env.ADMIN_EMAIL || "admin@example.com").toLowerCase();
+
+    // Prevent anyone from accessing or spoofing an administrator portal via swimmer pass
+    if (cleanToken.toLowerCase() === adminEmail) {
+      return null;
+    }
+
     const swimmers = this.getSwimmers({ status: "all" });
     return (
       swimmers.find(

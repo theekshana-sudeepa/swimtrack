@@ -16,6 +16,11 @@ export default function PortalLookupPage() {
     const clean = inputVal.trim();
     if (!clean) return;
 
+    if (clean.toLowerCase().includes("admin")) {
+      toast.error("Administrator access is restricted. Please sign in via the Admin Login page.");
+      return;
+    }
+
     // Direct redirect to /portal/[inputVal]
     router.push(`/portal/${encodeURIComponent(clean)}`);
   }

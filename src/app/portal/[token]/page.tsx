@@ -58,6 +58,8 @@ export default async function SwimmerPortalPage({
   const nextSession = DataStore.getNextUpcomingSession();
   const history = DataStore.getSwimmerAttendanceHistory(swimmer.id);
   const messages = DataStore.getSquadMessages();
+  const squadFriends = DataStore.getSwimmers({ status: "active" });
+  const dashboardStats = DataStore.getDashboardStats();
 
   return (
     <SwimmerPortalClient
@@ -66,6 +68,12 @@ export default async function SwimmerPortalPage({
       nextSession={nextSession}
       history={history}
       initialMessages={messages}
+      squadFriends={squadFriends}
+      squadStats={{
+        overallRate: dashboardStats.overallAttendanceRate,
+        completedSessions: dashboardStats.completedSessions,
+        activeSwimmers: dashboardStats.activeSwimmers,
+      }}
     />
   );
 }
