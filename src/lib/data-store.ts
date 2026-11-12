@@ -70,7 +70,7 @@ function getInitialStore(forceDemo = false): StoreState {
         key: "general",
         value: {
           group_name: "SwimTrack Club",
-          default_pool: "Bandaranayake College Swimming Pool Complex",
+          default_pool: "Bandaranayake College Swimming Pool Complex, Gampaha",
           default_duration_minutes: 105,
           timezone: "Asia/Colombo",
           admin_email: "theekshanasudeepa4@gmail.com",
@@ -374,6 +374,9 @@ export const DataStore = {
     location: string;
     notes?: string;
     series_id?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    geofence_radius?: number | null;
   }): SwimSession {
     const newId = crypto.randomUUID();
     const newSession: SwimSession = {
@@ -384,6 +387,9 @@ export const DataStore = {
       start_time: data.start_time,
       end_time: data.end_time,
       location: data.location,
+      latitude: data.latitude != null ? data.latitude : null,
+      longitude: data.longitude != null ? data.longitude : null,
+      geofence_radius: data.geofence_radius != null ? data.geofence_radius : 30,
       notes: data.notes || null,
       status: "scheduled",
       is_finalized: false,
@@ -463,6 +469,9 @@ export const DataStore = {
     end_time: string;
     start_date: string;
     occurrences_to_generate?: number;
+    latitude?: number | null;
+    longitude?: number | null;
+    geofence_radius?: number | null;
   }): { series: SessionSeries; createdSessionsCount: number } {
     const seriesId = crypto.randomUUID();
     const newSeries: SessionSeries = {
@@ -501,6 +510,9 @@ export const DataStore = {
             start_time: data.start_time,
             end_time: data.end_time,
             location: data.location,
+            latitude: data.latitude,
+            longitude: data.longitude,
+            geofence_radius: data.geofence_radius,
           });
           generated++;
         }

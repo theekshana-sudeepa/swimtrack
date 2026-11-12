@@ -12,7 +12,7 @@ export default async function SessionsPage() {
     | { default_pool?: string; default_duration_minutes?: number }
     | undefined;
 
-  const defaultPool = generalVal?.default_pool || "Bandaranayake College Swimming Pool Complex";
+  const defaultPool = generalVal?.default_pool || "Bandaranayake College Swimming Pool Complex, Gampaha";
   const defaultDuration = Number(generalVal?.default_duration_minutes) || 105;
 
   return (

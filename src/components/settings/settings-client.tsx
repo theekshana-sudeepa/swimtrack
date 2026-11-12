@@ -40,7 +40,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     (generalVal?.group_name as string) || "SwimTrack Club"
   );
   const [defaultPool, setDefaultPool] = React.useState(
-    (generalVal?.default_pool as string) || "Royal College Aquatic Complex, Colombo"
+    (generalVal?.default_pool as string) || "Bandaranayake College Swimming Pool Complex, Gampaha"
   );
   const [duration, setDuration] = React.useState(
     String(generalVal?.default_duration_minutes || "60")
@@ -225,7 +225,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
               name="default_pool"
               value={defaultPool}
               onChange={(e) => setDefaultPool(e.target.value)}
-              placeholder="e.g. Royal College Aquatic Complex, Colombo"
+              placeholder="e.g. Bandaranayake College Swimming Pool Complex, Gampaha"
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
             />
           </div>

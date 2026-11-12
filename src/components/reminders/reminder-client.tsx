@@ -443,7 +443,7 @@ export function ReminderClient({
                     <strong>Time:</strong> {selectedSession ? `${formatTime(selectedSession.start_time)} – ${formatTime(selectedSession.end_time)}` : "06:30 AM – 08:00 AM"}
                   </div>
                   <div className="text-muted-foreground">
-                    <strong>Location:</strong> {selectedSession ? selectedSession.location : "Royal College Aquatic Complex, Colombo"}
+                    <strong>Location:</strong> {selectedSession ? selectedSession.location : "Bandaranayake College Swimming Pool Complex, Gampaha"}
                   </div>
                 </div>
 

@@ -14,41 +14,17 @@ export interface VenueLocation {
  * spectator stands, and changing facilities while excluding neighboring houses/streets.
  */
 export const KNOWN_VENUES: Record<string, VenueLocation> = {
-  royal_college: {
-    name: "Royal College Aquatic Complex, Colombo",
-    latitude: 6.9015,
-    longitude: 79.8605,
-    radiusMeters: 90,
-  },
-  sugathadasa: {
-    name: "Sugathadasa Stadium Swimming Pool, Colombo",
-    latitude: 6.9472,
-    longitude: 79.87,
-    radiusMeters: 100,
-  },
   bandaranayake: {
-    name: "Bandaranayake College Swimming Pool Complex",
+    name: "Bandaranayake College Swimming Pool Complex, Gampaha",
     latitude: 7.0917,
     longitude: 79.9996,
-    radiusMeters: 85,
+    radiusMeters: 30,
   },
-  ananda_college: {
-    name: "Ananda College Swimming Pool Complex, Colombo",
-    latitude: 6.9242,
-    longitude: 79.8728,
-    radiusMeters: 85,
-  },
-  st_josephs: {
-    name: "St. Joseph's College Swimming Pool, Colombo",
-    latitude: 6.9208,
-    longitude: 79.8617,
-    radiusMeters: 85,
-  },
-  air_force_ratmalana: {
-    name: "Air Force Swimming Pool Complex, Ratmalana",
-    latitude: 6.8205,
-    longitude: 79.8862,
-    radiusMeters: 90,
+  ranaviru_apparels: {
+    name: "Ranaviru Apparels Swimming Pool, Yakkala",
+    latitude: 7.0785,
+    longitude: 80.036,
+    radiusMeters: 30,
   },
 };
 
@@ -62,7 +38,7 @@ export function getSessionVenueCoordinates(session: SwimSession): VenueLocation 
       name: session.location,
       latitude: session.latitude,
       longitude: session.longitude,
-      radiusMeters: session.geofence_radius || 90,
+      radiusMeters: session.geofence_radius || 30,
     };
   }
 
@@ -73,18 +49,16 @@ export function getSessionVenueCoordinates(session: SwimSession): VenueLocation 
     if (
       loc.includes(venueLower) ||
       venueLower.includes(loc) ||
-      (loc.includes("royal") && venueLower.includes("royal")) ||
-      (loc.includes("sugathadasa") && venueLower.includes("sugathadasa")) ||
       (loc.includes("bandaranayake") && venueLower.includes("bandaranayake")) ||
-      (loc.includes("ananda") && venueLower.includes("ananda")) ||
-      (loc.includes("joseph") && venueLower.includes("joseph"))
+      (loc.includes("ranaviru") && venueLower.includes("ranaviru")) ||
+      (loc.includes("yakkala") && venueLower.includes("yakkala"))
     ) {
       return venue;
     }
   }
 
-  // Fallback to Royal College Aquatic Complex if no match
-  return KNOWN_VENUES.royal_college;
+  // Fallback to Bandaranayake College Swimming Pool Complex if no match
+  return KNOWN_VENUES.bandaranayake;
 }
 
 /**

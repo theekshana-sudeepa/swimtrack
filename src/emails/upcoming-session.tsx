@@ -27,7 +27,7 @@ export default function UpcomingSessionEmail({
   sessionTitle = "Saturday Morning Endurance Squad",
   dateStr = "Saturday, November 7, 2026",
   timeStr = "06:30 AM – 08:00 AM",
-  location = "Royal College Aquatic Complex, Colombo",
+  location = "Bandaranayake College Swimming Pool Complex, Gampaha",
   customMessage = "Friendly reminder for our upcoming swim session! Bring your goggles, cap, and hydration.",
   optOutUrl = "https://swimtrack.app/reminders/opt-out",
 }: UpcomingSessionEmailProps) {

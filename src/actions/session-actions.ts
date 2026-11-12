@@ -21,6 +21,13 @@ export async function createSessionAction(formData: FormData) {
     return { error: "Please fill in all required session fields." };
   }
 
+  const rawLat = formData.get("latitude") as string;
+  const rawLng = formData.get("longitude") as string;
+  const rawRadius = formData.get("geofence_radius") as string;
+  const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
+  const longitude = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
+  const geofence_radius = rawRadius && !isNaN(parseInt(rawRadius, 10)) ? parseInt(rawRadius, 10) : 30;
+
   const session = DataStore.createSession({
     title,
     date,
@@ -28,6 +35,9 @@ export async function createSessionAction(formData: FormData) {
     end_time,
     location,
     notes,
+    latitude,
+    longitude,
+    geofence_radius,
   });
 
   // Persist directly to Supabase Postgres database
@@ -57,6 +67,13 @@ export async function createSeriesAction(formData: FormData) {
     return { success: false as const, error: "Please fill in all recurring series parameters." };
   }
 
+  const rawLat = formData.get("latitude") as string;
+  const rawLng = formData.get("longitude") as string;
+  const rawRadius = formData.get("geofence_radius") as string;
+  const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
+  const longitude = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
+  const geofence_radius = rawRadius && !isNaN(parseInt(rawRadius, 10)) ? parseInt(rawRadius, 10) : 30;
+
   const result = DataStore.createSeries({
     title,
     location,
@@ -66,6 +83,9 @@ export async function createSeriesAction(formData: FormData) {
     end_time,
     start_date,
     occurrences_to_generate: occurrences,
+    latitude,
+    longitude,
+    geofence_radius,
   });
 
   // Find generated occurrences and batch persist to Supabase Postgres
@@ -93,6 +113,13 @@ export async function updateSessionAction(id: string, formData: FormData) {
   const location = sanitizeString(formData.get("location") as string, 150);
   const notes = sanitizeString(formData.get("notes") as string, 500) || undefined;
 
+  const rawLat = formData.get("latitude") as string;
+  const rawLng = formData.get("longitude") as string;
+  const rawRadius = formData.get("geofence_radius") as string;
+  const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
+  const longitude = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
+  const geofence_radius = rawRadius && !isNaN(parseInt(rawRadius, 10)) ? parseInt(rawRadius, 10) : undefined;
+
   const session = DataStore.updateSession(id, {
     title,
     date,
@@ -100,6 +127,9 @@ export async function updateSessionAction(id: string, formData: FormData) {
     end_time,
     location,
     notes,
+    ...(latitude !== undefined ? { latitude } : {}),
+    ...(longitude !== undefined ? { longitude } : {}),
+    ...(geofence_radius !== undefined ? { geofence_radius } : {}),
   });
 
   if (session) {

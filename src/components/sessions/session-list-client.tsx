@@ -19,6 +19,13 @@ import {
   Unlock,
 } from "lucide-react";
 import { SwimSession } from "@/types/database";
+import dynamic from "next/dynamic";
+import { SelectedLocationData } from "./map-location-picker";
+
+const MapLocationPickerModal = dynamic(
+  () => import("./map-location-picker").then((m) => m.MapLocationPickerModal),
+  { ssr: false }
+);
 import {
   createSessionAction,
   createSeriesAction,
@@ -31,7 +38,7 @@ import { toast } from "sonner";
 
 export function SessionListClient({
   initialSessions,
-  defaultPool = "Bandaranayake College Swimming Pool Complex",
+  defaultPool = "Bandaranayake College Swimming Pool Complex, Gampaha",
   defaultDuration = 105,
 }: {
   initialSessions: SwimSession[];
@@ -44,6 +51,15 @@ export function SessionListClient({
   const [showCreateSingleModal, setShowCreateSingleModal] = React.useState(false);
   const [showCreateSeriesModal, setShowCreateSeriesModal] = React.useState(false);
   const [actionPendingId, setActionPendingId] = React.useState<string | null>(null);
+
+  // Custom Map Location State for 30m geofencing
+  const [selectedGeo, setSelectedGeo] = React.useState<SelectedLocationData>({
+    name: defaultPool || "Bandaranayake College Swimming Pool Complex, Gampaha",
+    latitude: 7.0917,
+    longitude: 79.9996,
+    radiusMeters: 30,
+  });
+  const [showMapPicker, setShowMapPicker] = React.useState(false);
 
   React.useEffect(() => {
     setSessions(initialSessions);
@@ -432,16 +448,100 @@ export function SessionListClient({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block font-semibold text-foreground">
-                    Pool / Location *
+                    Pool / Venue Location *
                   </label>
-                  <span className="text-[10px] text-aqua font-semibold">From Saved Settings</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMapPicker(true)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-aqua hover:underline"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>Select on Map</span>
+                  </button>
                 </div>
                 <input
                   name="location"
                   required
-                  defaultValue={defaultPool}
+                  value={selectedGeo.name}
+                  onChange={(e) =>
+                    setSelectedGeo((prev) => ({ ...prev, name: e.target.value }))
+                  }
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
+
+                {/* Hidden inputs to submit custom GPS coordinates and 30m geofence radius */}
+                <input type="hidden" name="latitude" value={selectedGeo.latitude} />
+                <input type="hidden" name="longitude" value={selectedGeo.longitude} />
+                <input type="hidden" name="geofence_radius" value={selectedGeo.radiusMeters} />
+
+                {/* Quick Presets & Map Selector Badge */}
+                <div className="mt-2 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1 font-mono text-[10px]">
+                      <MapPin className="w-3 h-3 text-aqua shrink-0" />
+                      <span>
+                        {selectedGeo.latitude.toFixed(4)}, {selectedGeo.longitude.toFixed(4)} ({selectedGeo.radiusMeters}m geofence)
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowMapPicker(true)}
+                      className="text-aqua font-bold text-[10px] hover:underline"
+                    >
+                      Change on Map &rarr;
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedGeo({
+                          name: "Bandaranayake College Swimming Pool Complex, Gampaha",
+                          latitude: 7.0917,
+                          longitude: 79.9996,
+                          radiusMeters: 30,
+                        })
+                      }
+                      className={cn(
+                        "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                        selectedGeo.latitude === 7.0917
+                          ? "bg-aqua/20 text-aqua border-aqua/40"
+                          : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                      )}
+                    >
+                      Bandaranayake (30m)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedGeo({
+                          name: "Ranaviru Apparels Swimming Pool, Yakkala",
+                          latitude: 7.0785,
+                          longitude: 80.036,
+                          radiusMeters: 30,
+                        })
+                      }
+                      className={cn(
+                        "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                        selectedGeo.latitude === 7.0785
+                          ? "bg-aqua/20 text-aqua border-aqua/40"
+                          : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                      )}
+                    >
+                      Ranaviru Apparels (30m)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowMapPicker(true)}
+                      className="px-2 py-0.5 rounded-md border border-seafoam/40 bg-seafoam/10 text-seafoam text-[10px] font-bold hover:bg-seafoam/20 transition-all flex items-center gap-1"
+                    >
+                      <span>🗺️ Pick on Map</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -580,16 +680,100 @@ export function SessionListClient({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block font-semibold text-foreground">
-                    Pool / Location *
+                    Pool / Venue Location *
                   </label>
-                  <span className="text-[10px] text-aqua font-semibold">From Saved Settings</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMapPicker(true)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-aqua hover:underline"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>Select on Map</span>
+                  </button>
                 </div>
                 <input
                   name="location"
                   required
-                  defaultValue={defaultPool}
+                  value={selectedGeo.name}
+                  onChange={(e) =>
+                    setSelectedGeo((prev) => ({ ...prev, name: e.target.value }))
+                  }
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
+
+                {/* Hidden inputs to submit custom GPS coordinates and 30m geofence radius */}
+                <input type="hidden" name="latitude" value={selectedGeo.latitude} />
+                <input type="hidden" name="longitude" value={selectedGeo.longitude} />
+                <input type="hidden" name="geofence_radius" value={selectedGeo.radiusMeters} />
+
+                {/* Quick Presets & Map Selector Badge */}
+                <div className="mt-2 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1 font-mono text-[10px]">
+                      <MapPin className="w-3 h-3 text-aqua shrink-0" />
+                      <span>
+                        {selectedGeo.latitude.toFixed(4)}, {selectedGeo.longitude.toFixed(4)} ({selectedGeo.radiusMeters}m geofence)
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowMapPicker(true)}
+                      className="text-aqua font-bold text-[10px] hover:underline"
+                    >
+                      Change on Map &rarr;
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedGeo({
+                          name: "Bandaranayake College Swimming Pool Complex, Gampaha",
+                          latitude: 7.0917,
+                          longitude: 79.9996,
+                          radiusMeters: 30,
+                        })
+                      }
+                      className={cn(
+                        "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                        selectedGeo.latitude === 7.0917
+                          ? "bg-aqua/20 text-aqua border-aqua/40"
+                          : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                      )}
+                    >
+                      Bandaranayake (30m)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedGeo({
+                          name: "Ranaviru Apparels Swimming Pool, Yakkala",
+                          latitude: 7.0785,
+                          longitude: 80.036,
+                          radiusMeters: 30,
+                        })
+                      }
+                      className={cn(
+                        "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                        selectedGeo.latitude === 7.0785
+                          ? "bg-aqua/20 text-aqua border-aqua/40"
+                          : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                      )}
+                    >
+                      Ranaviru Apparels (30m)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowMapPicker(true)}
+                      className="px-2 py-0.5 rounded-md border border-seafoam/40 bg-seafoam/10 text-seafoam text-[10px] font-bold hover:bg-seafoam/20 transition-all flex items-center gap-1"
+                    >
+                      <span>🗺️ Pick on Map</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
@@ -610,6 +794,22 @@ export function SessionListClient({
             </form>
           </div>
         </div>
+      )}
+      {/* Interactive Map Location Picker Modal */}
+      {showMapPicker && (
+        <MapLocationPickerModal
+          isOpen={showMapPicker}
+          onClose={() => setShowMapPicker(false)}
+          onSelectLocation={(data) => {
+            setSelectedGeo(data);
+          }}
+          initialLocation={{
+            name: selectedGeo.name,
+            latitude: selectedGeo.latitude,
+            longitude: selectedGeo.longitude,
+            radiusMeters: selectedGeo.radiusMeters,
+          }}
+        />
       )}
     </div>
   );

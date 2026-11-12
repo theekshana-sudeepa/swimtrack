@@ -36,17 +36,17 @@ INSERT INTO public.reminder_preferences (swimmer_id, email_reminders_enabled, op
 
 -- Session Series
 INSERT INTO public.session_series (id, title, location, recurrence_rule, day_of_week, start_time, end_time, start_date, active) VALUES
-('22222222-2222-2222-2222-222222222201', 'Saturday Morning Endurance Squad', 'Royal College Aquatic Complex, Colombo', 'weekly', 6, '06:30:00', '08:00:00', '2025-01-01', true),
-('22222222-2222-2222-2222-222222222202', 'Wednesday Evening Technique Drills', 'Sugathadasa Stadium Swimming Pool, Colombo', 'weekly', 3, '18:30:00', '19:45:00', '2025-01-01', true);
+('22222222-2222-2222-2222-222222222201', 'Saturday Morning Endurance Squad', 'Bandaranayake College Swimming Pool Complex, Gampaha', 'weekly', 6, '06:30:00', '08:00:00', '2025-01-01', true),
+('22222222-2222-2222-2222-222222222202', 'Wednesday Evening Technique Drills', 'Ranaviru Apparels Swimming Pool, Yakkala', 'weekly', 3, '18:30:00', '19:45:00', '2025-01-01', true);
 
 -- Past Sessions and Next Upcoming Session (dates around November 2026 as per local context)
-INSERT INTO public.swim_sessions (id, series_id, title, date, start_time, end_time, location, notes, status, is_finalized) VALUES
-('33333333-3333-3333-3333-333333333301', '22222222-2222-2222-2222-222222222201', 'Saturday Morning Endurance Squad', '2026-10-24', '06:30:00', '08:00:00', 'Royal College Aquatic Complex, Colombo', 'Aerobic capacity set: 20x100m on 1:45.', 'completed', true),
-('33333333-3333-3333-3333-333333333302', '22222222-2222-2222-2222-222222222202', 'Wednesday Evening Technique Drills', '2026-10-28', '18:30:00', '19:45:00', 'Sugathadasa Stadium Swimming Pool, Colombo', 'Breaststroke timing and high elbow recovery.', 'completed', true),
-('33333333-3333-3333-3333-333333333303', '22222222-2222-2222-2222-222222222201', 'Saturday Morning Endurance Squad', '2026-10-31', '06:30:00', '08:00:00', 'Royal College Aquatic Complex, Colombo', 'Halloween distance challenge: 3000m progressive ladder.', 'completed', true),
-('33333333-3333-3333-3333-333333333304', '22222222-2222-2222-2222-222222222202', 'Wednesday Evening Technique Drills', '2026-11-04', '18:30:00', '19:45:00', 'Sugathadasa Stadium Swimming Pool, Colombo', 'Starts, relay takeoffs, and underwater streamline kicks.', 'completed', true),
-('33333333-3333-3333-3333-333333333305', '22222222-2222-2222-2222-222222222201', 'Saturday Morning Endurance Squad', '2026-11-07', '06:30:00', '08:00:00', 'Royal College Aquatic Complex, Colombo', 'Focus on 400m pacing and threshold heart rate tracking.', 'scheduled', false),
-('33333333-3333-3333-3333-333333333306', '22222222-2222-2222-2222-222222222202', 'Wednesday Evening Technique Drills', '2026-11-11', '18:30:00', '19:45:00', 'Sugathadasa Stadium Swimming Pool, Colombo', 'Turn perfection and negative split intervals.', 'scheduled', false);
+INSERT INTO public.swim_sessions (id, series_id, title, date, start_time, end_time, location, latitude, longitude, geofence_radius, notes, status, is_finalized) VALUES
+('33333333-3333-3333-3333-333333333301', '22222222-2222-2222-2222-222222222201', 'Saturday Morning Endurance Squad', '2026-10-24', '06:30:00', '08:00:00', 'Bandaranayake College Swimming Pool Complex, Gampaha', 7.0917, 79.9996, 30, 'Aerobic capacity set: 20x100m on 1:45.', 'completed', true),
+('33333333-3333-3333-3333-333333333302', '22222222-2222-2222-2222-222222222202', 'Wednesday Evening Technique Drills', '2026-10-28', '18:30:00', '19:45:00', 'Ranaviru Apparels Swimming Pool, Yakkala', 7.0785, 80.0360, 30, 'Breaststroke timing and high elbow recovery.', 'completed', true),
+('33333333-3333-3333-3333-333333333303', '22222222-2222-2222-2222-222222222201', 'Saturday Morning Endurance Squad', '2026-10-31', '06:30:00', '08:00:00', 'Bandaranayake College Swimming Pool Complex, Gampaha', 7.0917, 79.9996, 30, 'Halloween distance challenge: 3000m progressive ladder.', 'completed', true),
+('33333333-3333-3333-3333-333333333304', '22222222-2222-2222-2222-222222222202', 'Wednesday Evening Technique Drills', '2026-11-04', '18:30:00', '19:45:00', 'Ranaviru Apparels Swimming Pool, Yakkala', 7.0785, 80.0360, 30, 'Starts, relay takeoffs, and underwater streamline kicks.', 'completed', true),
+('33333333-3333-3333-3333-333333333305', '22222222-2222-2222-2222-222222222201', 'Saturday Morning Endurance Squad', '2026-11-07', '06:30:00', '08:00:00', 'Bandaranayake College Swimming Pool Complex, Gampaha', 7.0917, 79.9996, 30, 'Focus on 400m pacing and threshold heart rate tracking.', 'scheduled', false),
+('33333333-3333-3333-3333-333333333306', '22222222-2222-2222-2222-222222222202', 'Wednesday Evening Technique Drills', '2026-11-11', '18:30:00', '19:45:00', 'Ranaviru Apparels Swimming Pool, Yakkala', 7.0785, 80.0360, 30, 'Turn perfection and negative split intervals.', 'scheduled', false);
 
 -- Enroll active swimmers in sessions
 INSERT INTO public.session_participants (session_id, swimmer_id)

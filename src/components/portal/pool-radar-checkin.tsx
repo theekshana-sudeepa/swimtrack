@@ -514,7 +514,7 @@ export function PoolRadarCheckin({
                 startGpsWatch(nextSim);
                 if (nextSim) {
                   toast.info(
-                    "Simulated Pool Location: You are now placed at Royal College Aquatic Complex!"
+                    `Simulated Pool Location: You are now placed at ${venue.name}!`
                   );
                 } else {
                   toast.info("Resumed real device GPS hardware.");
