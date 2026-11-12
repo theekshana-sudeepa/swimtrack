@@ -3,10 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Lock, Mail, KeyRound, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
+import { Lock, Mail, KeyRound, ArrowRight, AlertCircle } from "lucide-react";
 import { SwimTrackLogo } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { loginAction, demoLoginAction } from "@/actions/auth-actions";
+import { loginAction } from "@/actions/auth-actions";
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -14,7 +14,6 @@ function LoginForm() {
 
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [isDemoSubmitting, setIsDemoSubmitting] = React.useState(false);
 
   async function handleFormSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -36,19 +35,6 @@ function LoginForm() {
       }
       setErrorMessage("Authentication failed. Please check your credentials.");
       setIsSubmitting(false);
-    }
-  }
-
-  async function handleDemoLogin() {
-    setIsDemoSubmitting(true);
-    setErrorMessage(null);
-    try {
-      await demoLoginAction(redirectTo);
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "digest" in err) {
-        throw err;
-      }
-      setIsDemoSubmitting(false);
     }
   }
 
@@ -116,7 +102,7 @@ function LoginForm() {
 
         <button
           type="submit"
-          disabled={isSubmitting || isDemoSubmitting}
+          disabled={isSubmitting}
           className="w-full mt-2 py-3 px-4 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
         >
           {isSubmitting ? (
@@ -129,26 +115,6 @@ function LoginForm() {
           )}
         </button>
       </form>
-
-      {/* Evaluation Quick Demo Access Button (Only visible if explicitly enabled via environment) */}
-      {process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true" && (
-        <div className="mt-6 pt-6 border-t border-border/80 text-center">
-          <p className="text-xs text-muted-foreground mb-3">
-            Evaluation Demo Mode Enabled
-          </p>
-          <button
-            type="button"
-            onClick={handleDemoLogin}
-            disabled={isSubmitting || isDemoSubmitting}
-            className="w-full py-2.5 px-4 rounded-xl border border-seafoam/40 bg-seafoam/10 hover:bg-seafoam/20 text-seafoam font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
-          >
-            <ShieldCheck className="w-4 h-4 text-seafoam" />
-            <span>
-              {isDemoSubmitting ? "Entering..." : "Instant Demo Admin Sign In"}
-            </span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }

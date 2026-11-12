@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import crypto from "crypto";
 import { getSupabaseClient } from "./supabase-client";
 import { timingSafeMatch } from "./security";
 
@@ -9,6 +10,74 @@ export interface AdminUser {
   id: string;
   email: string;
   isDemo: boolean;
+}
+
+function getAuthSecret(): string {
+  return (
+    process.env.ADMIN_PASSWORD ||
+    process.env.CRON_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    "swimtrack_secure_auth_secret_2026"
+  );
+}
+
+/**
+ * Creates a cryptographically signed HMAC token for the administrator session.
+ */
+export function createAdminSessionToken(email: string): string {
+  const timestamp = Date.now();
+  const payload = `${email.toLowerCase()}:${timestamp}`;
+  const hmac = crypto
+    .createHmac("sha256", getAuthSecret())
+    .update(payload)
+    .digest("hex");
+  return `${Buffer.from(payload).toString("base64url")}.${hmac}`;
+}
+
+/**
+ * Verifies a cryptographically signed administrator session token.
+ */
+export function verifyAdminSessionToken(token: string): { valid: boolean; email?: string } {
+  if (!token) return { valid: false };
+
+  // In production, reject any legacy demo token unconditionally
+  if (token === DEMO_ADMIN_TOKEN) {
+    if (process.env.NODE_ENV === "production") {
+      return { valid: false };
+    }
+    return { valid: true, email: process.env.ADMIN_EMAIL || "admin@example.com" };
+  }
+
+  if (!token.includes(".")) {
+    return { valid: false };
+  }
+
+  try {
+    const [encodedPayload, signature] = token.split(".");
+    if (!encodedPayload || !signature) return { valid: false };
+
+    const payload = Buffer.from(encodedPayload, "base64url").toString("utf-8");
+    const [email, timestampStr] = payload.split(":");
+    const timestamp = parseInt(timestampStr, 10);
+
+    // Max session age: 7 days
+    if (isNaN(timestamp) || Date.now() - timestamp > 1000 * 60 * 60 * 24 * 7) {
+      return { valid: false };
+    }
+
+    const expectedHmac = crypto
+      .createHmac("sha256", getAuthSecret())
+      .update(payload)
+      .digest("hex");
+
+    if (!timingSafeMatch(signature, expectedHmac)) {
+      return { valid: false };
+    }
+
+    return { valid: true, email };
+  } catch {
+    return { valid: false };
+  }
 }
 
 /**
@@ -29,8 +98,8 @@ export function isAdminAllowlisted(userId: string, email?: string): boolean {
   if (adminId && userId === adminId) return true;
   if (adminEmail && email && email.toLowerCase() === adminEmail.toLowerCase()) return true;
 
-  // In demo mode without configured envs, allow the designated demo admin email
-  if (isDemoMode() && (email === "admin@example.com" || userId === "demo-admin-id")) {
+  // In local dev demo mode without configured envs, allow default admin email
+  if (isDemoMode() && process.env.NODE_ENV !== "production" && (email === "admin@example.com" || userId === "demo-admin-id")) {
     return true;
   }
 
@@ -49,16 +118,20 @@ export async function getAdminSession(): Promise<AdminUser | null> {
     return null;
   }
 
-  // Check demo session token with timing-safe comparison
-  if (timingSafeMatch(sessionToken, DEMO_ADMIN_TOKEN)) {
-    return {
-      id: "demo-admin-id",
-      email: process.env.ADMIN_EMAIL || "admin@example.com",
-      isDemo: true,
-    };
+  // 1. Verify cryptographically signed token
+  const tokenCheck = verifyAdminSessionToken(sessionToken);
+  if (tokenCheck.valid && tokenCheck.email) {
+    const adminEmail = (process.env.ADMIN_EMAIL || "admin@example.com").toLowerCase();
+    if (tokenCheck.email.toLowerCase() === adminEmail) {
+      return {
+        id: "admin-id",
+        email: tokenCheck.email,
+        isDemo: isDemoMode(),
+      };
+    }
   }
 
-  // If live Supabase client exists, verify session with Supabase Auth
+  // 2. If live Supabase client exists, verify session with Supabase Auth
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -92,4 +165,3 @@ export async function requireAdminSession(): Promise<AdminUser> {
   }
   return session;
 }
-

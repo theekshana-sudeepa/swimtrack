@@ -20,7 +20,12 @@ export function middleware(request: NextRequest) {
   const isCookieSuspicious =
     adminCookie && (adminCookie.length > 4096 || /[^\w\-.:]/.test(adminCookie));
 
-  if (isCookieSuspicious) {
+  // In production, reject any legacy demo token unconditionally and nuke the cookie
+  const isDemoBypassInProd =
+    adminCookie === "swimtrack_demo_admin_authenticated_2026" &&
+    process.env.NODE_ENV === "production";
+
+  if (isCookieSuspicious || isDemoBypassInProd) {
     const response = NextResponse.redirect(new URL("/login", request.url));
     response.cookies.delete("swimtrack_admin_session");
     return response;

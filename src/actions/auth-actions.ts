@@ -2,7 +2,7 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_COOKIE_NAME, DEMO_ADMIN_TOKEN, isDemoMode, isAdminAllowlisted } from "@/lib/auth";
+import { ADMIN_COOKIE_NAME, createAdminSessionToken, isDemoMode, isAdminAllowlisted } from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase-client";
 import { loginRateLimiter } from "@/lib/rate-limiter";
 import { timingSafeMatch, sanitizeEmail, extractClientIp } from "@/lib/security";
@@ -52,8 +52,9 @@ export async function loginAction(
 
     if (isEmailMatch && isPassMatch) {
       loginRateLimiter.reset(rateLimitKey);
+      const sessionToken = createAdminSessionToken(adminEmail);
       const cookieStore = await cookies();
-      cookieStore.set(ADMIN_COOKIE_NAME, DEMO_ADMIN_TOKEN, {
+      cookieStore.set(ADMIN_COOKIE_NAME, sessionToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -110,22 +111,8 @@ export async function loginAction(
   redirect(redirectTo);
 }
 
-export async function demoLoginAction(redirectTo = "/dashboard") {
-  // Prevent unauthorized bypass on hosted/production environments
-  if (process.env.NODE_ENV === "production" && process.env.ENABLE_DEMO_LOGIN !== "true") {
-    return { error: "Instant demo bypass is disabled on production. Please log in with admin credentials." };
-  }
-
-  const cookieStore = await cookies();
-  cookieStore.set(ADMIN_COOKIE_NAME, DEMO_ADMIN_TOKEN, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
-
-  redirect(redirectTo);
+export async function demoLoginAction() {
+  return { error: "Instant demo bypass is permanently disabled. Please log in with your administrator credentials." };
 }
 
 export async function logoutAction() {

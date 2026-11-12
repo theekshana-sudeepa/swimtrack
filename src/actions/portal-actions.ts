@@ -141,8 +141,8 @@ export async function selfCheckInWithGeofenceAction(
     };
   }
 
-  // Server-Side Geofence & Guardrail Verification
-  const isDev = process.env.NODE_ENV !== "production" || devBypass;
+  // Server-Side Geofence & Guardrail Verification (dev bypass strictly forbidden in production)
+  const isDev = process.env.NODE_ENV !== "production" && devBypass;
   const validation = validateGeofenceCheckin({
     userLat: coords.latitude,
     userLng: coords.longitude,

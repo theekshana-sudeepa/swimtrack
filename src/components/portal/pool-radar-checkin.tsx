@@ -500,36 +500,6 @@ export function PoolRadarCheckin({
               </span>
             </div>
           </div>
-
-          {/* DEVELOPER / DEMO SIMULATION TOGGLE (Useful for testing without driving to Colombo) */}
-          <div className="pt-3 border-t border-border/60 flex items-center justify-between text-[11px]">
-            <span className="text-muted-foreground">
-              Testing from desk or emulator?
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                const nextSim = !isSimulated;
-                setIsSimulated(nextSim);
-                startGpsWatch(nextSim);
-                if (nextSim) {
-                  toast.info(
-                    `Simulated Pool Location: You are now placed at ${venue.name}!`
-                  );
-                } else {
-                  toast.info("Resumed real device GPS hardware.");
-                }
-              }}
-              className={cn(
-                "px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all",
-                isSimulated
-                  ? "bg-aqua/20 text-aqua border-aqua/40 shadow-sm"
-                  : "bg-secondary/40 text-muted-foreground hover:text-foreground border-border"
-              )}
-            >
-              {isSimulated ? "✓ Simulating Pool Deck (25m)" : "🧪 Test Pool Simulation"}
-            </button>
-          </div>
         </div>
       )}
     </div>
