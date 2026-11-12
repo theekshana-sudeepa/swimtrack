@@ -52,13 +52,23 @@ export function PoolRadarCheckin({
     return getSessionVenueCoordinates(session);
   }, [session]);
 
-  // Initial check if already marked present or late
-  const isAlreadyCheckedIn =
-    existingAttendance?.status === "present" ||
-    existingAttendance?.status === "late";
-
   const [attendanceRecord, setAttendanceRecord] =
     React.useState<AttendanceRecord | null>(existingAttendance || null);
+
+  React.useEffect(() => {
+    if (existingAttendance) {
+      setAttendanceRecord(existingAttendance);
+    } else {
+      setAttendanceRecord(null);
+    }
+  }, [existingAttendance]);
+
+  // Check if already marked present or late
+  const isAlreadyCheckedIn =
+    attendanceRecord?.status === "present" ||
+    attendanceRecord?.status === "late" ||
+    existingAttendance?.status === "present" ||
+    existingAttendance?.status === "late";
   const [gpsState, setGpsState] = React.useState<GpsState>("prompt");
   const [coords, setCoords] = React.useState<{
     latitude: number;

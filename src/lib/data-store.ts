@@ -1130,19 +1130,20 @@ export const DataStore = {
     );
 
     if (!record) {
-      record = {
-        id: `att-${sessionId}-${swimmerId}`,
-        session_id: sessionId,
-        swimmer_id: swimmerId,
-        status: status === "attending" ? "not_marked" : "excused",
-        notes:
-          status === "attending"
-            ? "RSVP: Confirmed Attending 🏊"
-            : `RSVP: Excused - ${reason || "Cannot attend"}`,
-        marked_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      store.attendance.push(record);
+      if (status === "declined") {
+        record = {
+          id: `att-${sessionId}-${swimmerId}`,
+          session_id: sessionId,
+          swimmer_id: swimmerId,
+          status: "excused",
+          notes: `RSVP: Excused - ${reason || "Cannot attend"}`,
+          marked_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        store.attendance.push(record);
+      } else {
+        return null;
+      }
     } else {
       if (status === "declined") {
         record.status = "excused";
@@ -1151,7 +1152,7 @@ export const DataStore = {
         if (record.status === "excused" || record.status === "absent") {
           record.status = "not_marked";
         }
-        record.notes = "RSVP: Confirmed Attending 🏊";
+        record.notes = undefined;
       }
       record.updated_at = new Date().toISOString();
     }
