@@ -19,6 +19,46 @@ export function timingSafeMatch(a: string, b: string): boolean {
 }
 
 /**
+ * Hashes a swimmer's 4-digit PIN with a salt and the swimmer ID to prevent rainbow table attacks.
+ */
+export function hashSwimmerPin(swimmerId: string, pin: string): string {
+  const salt = process.env.SWIMMER_PIN_SALT || "swimtrack-squad-pin-salt-2026";
+  return crypto
+    .createHash("sha256")
+    .update(`${swimmerId}:${pin.trim()}:${salt}`, "utf8")
+    .digest("hex");
+}
+
+/**
+ * Constant-time verification of a swimmer's 4-digit PIN.
+ * Supports hashed PINs and handles legacy plain PINs gracefully.
+ */
+export function verifySwimmerPinSecure(
+  swimmerId: string,
+  inputPin: string,
+  storedVal?: string | null
+): boolean {
+  if (!storedVal || typeof storedVal !== "string" || !inputPin || typeof inputPin !== "string") {
+    return false;
+  }
+  const cleanPin = inputPin.trim();
+  const cleanStored = storedVal.trim();
+
+  // 1. Check against modern hashed PIN
+  const computedHash = hashSwimmerPin(swimmerId, cleanPin);
+  if (timingSafeMatch(computedHash, cleanStored)) {
+    return true;
+  }
+
+  // 2. Backward compatibility fallback for plain 4-digit PIN
+  if (cleanStored.length === 4 && timingSafeMatch(cleanPin, cleanStored)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Strips dangerous HTML tags, inline scripts, event handlers, and null bytes.
  * Sanitizes input to prevent Stored & Reflected Cross-Site Scripting (XSS).
  */

@@ -110,3 +110,10 @@ export const reminderRateLimiter = new SlidingWindowRateLimiter({
   lockoutMs: 5 * 60 * 1000,
 });
 
+// Swimmer PIN Entry: Max 5 failed attempts per 10 minutes -> 10 min lockout per IP or swimmer ID
+export const swimmerPinRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  maxAttempts: 5,
+  lockoutMs: 10 * 60 * 1000,
+});
+

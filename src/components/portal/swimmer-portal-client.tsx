@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Waves,
   Clock,
@@ -22,11 +23,16 @@ import {
   Users,
   Trophy,
   Award,
+  LogOut,
 } from "lucide-react";
 import { Swimmer, SwimSession, SquadMessage } from "@/types/database";
 import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
-import { submitRsvpAction, postChalkboardMessageAction } from "@/actions/portal-actions";
+import {
+  submitRsvpAction,
+  postChalkboardMessageAction,
+  logoutSwimmerAction,
+} from "@/actions/portal-actions";
 import { PoolRadarCheckin } from "./pool-radar-checkin";
 import { AttendanceRecord } from "@/types/database";
 import confetti from "canvas-confetti";
@@ -64,6 +70,7 @@ export function SwimmerPortalClient({
   squadFriends = [],
   squadStats,
 }: SwimmerPortalClientProps) {
+  const router = useRouter();
   // Friends Leaderboard & Analytics (Ranked by attendance rate & active streak)
   const sortedFriends = React.useMemo(() => {
     if (!squadFriends || squadFriends.length === 0) return [];
@@ -172,6 +179,25 @@ export function SwimmerPortalClient({
             <Waves className="w-3.5 h-3.5 animate-pulse" />
             <span>Squad Pass</span>
           </span>
+
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await logoutSwimmerAction();
+                localStorage.removeItem("swimtrack_swimmer_token");
+              } catch {
+                // ignore
+              }
+              toast.info("Swimmer Pass signed out.");
+              router.push("/portal");
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground text-[11px] font-semibold transition-all active:scale-95"
+            title="Switch swimmer profile"
+          >
+            <LogOut className="w-3 h-3" />
+            <span className="hidden sm:inline">Switch Profile</span>
+          </button>
         </div>
       </header>
 
@@ -230,6 +256,11 @@ export function SwimmerPortalClient({
               <div className="text-[11px] font-semibold text-muted-foreground mt-0.5">
                 Attendance Rate
               </div>
+              {swimmer.attendance_stats?.total !== undefined && swimmer.attendance_stats.total > 0 && (
+                <div className="text-[10px] text-muted-foreground mt-0.5 font-medium">
+                  {(swimmer.attendance_stats.present || 0) + (swimmer.attendance_stats.late || 0)} of {swimmer.attendance_stats.total} practices
+                </div>
+              )}
             </div>
 
             <div className="p-3.5 rounded-2xl bg-secondary/40 border border-border/70">
@@ -258,6 +289,11 @@ export function SwimmerPortalClient({
               <div className="text-[11px] font-semibold text-muted-foreground mt-0.5">
                 Missed (Polla)
               </div>
+              {(swimmer.attendance_stats?.excused || 0) > 0 && (
+                <div className="text-[10px] text-sky-400 mt-0.5 font-medium">
+                  +{swimmer.attendance_stats?.excused} excused
+                </div>
+              )}
             </div>
           </div>
         </div>

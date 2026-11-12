@@ -44,6 +44,14 @@ export default function PublicLandingPage() {
             </a>
 
             <Link
+              href="/portal"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg border border-aqua/40 bg-aqua/10 hover:bg-aqua/20 text-aqua transition-all shadow-sm active:scale-95"
+            >
+              <Waves className="w-3.5 h-3.5" />
+              <span>Swimmer Pass</span>
+            </Link>
+
+            <Link
               href="/login"
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-aqua hover:bg-aqua-hover text-ocean-900 transition-all shadow-sm active:scale-95"
             >
@@ -76,19 +84,27 @@ export default function PublicLandingPage() {
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
             <Link
-              href="/login"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 font-bold text-sm transition-all shadow-lg hover:shadow-aqua/20 active:scale-95"
+              href="/portal"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-aqua to-seafoam hover:opacity-95 text-ocean-950 font-extrabold text-sm transition-all shadow-lg hover:shadow-aqua/25 active:scale-95"
             >
-              <Zap className="w-4 h-4" />
-              <span>Open Attendance Command Center</span>
+              <Waves className="w-4 h-4" />
+              <span>Open Swimmer Pass 🏊</span>
               <ArrowRight className="w-4 h-4" />
+            </Link>
+
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-border bg-card/60 hover:bg-card text-foreground font-semibold text-sm transition-all shadow-sm active:scale-95"
+            >
+              <Zap className="w-4 h-4 text-aqua" />
+              <span>Admin Command Center</span>
             </Link>
 
             <a
               href="#features"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-border bg-card/50 hover:bg-card text-foreground font-semibold text-sm transition-all"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-muted-foreground hover:text-foreground font-semibold text-sm transition-all"
             >
-              <span>Explore Architecture</span>
+              <span>Explore Architecture &darr;</span>
             </a>
           </div>
 

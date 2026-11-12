@@ -554,5 +554,25 @@ export const SupabaseDB = {
       console.warn("[SupabaseDB] Error recording reminder delivery:", err);
     }
   },
+
+  /**
+   * Persists an application setting row into Supabase app_settings table.
+   */
+  async upsertAppSetting(key: string, value: Record<string, unknown>): Promise<void> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return;
+    try {
+      const { error } = await supabase.from("app_settings").upsert({
+        key,
+        value,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) {
+        console.error("[SupabaseDB] Error upserting app setting:", error);
+      }
+    } catch (err) {
+      console.error("[SupabaseDB] Error upserting app setting:", err);
+    }
+  },
 };
 

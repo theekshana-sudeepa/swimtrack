@@ -17,6 +17,7 @@ import {
 import { DataStore } from "@/lib/data-store";
 import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import { getInitials, formatTime, cn } from "@/lib/utils";
+import { SwimmerPinAdminControl } from "@/components/swimmers/swimmer-pin-admin-control";
 
 export const dynamic = "force-dynamic";
 
@@ -132,6 +133,13 @@ export default async function SwimmerProfilePage({
           </div>
         </div>
       </div>
+
+      {/* Swimmer Pass Security PIN Control */}
+      <SwimmerPinAdminControl
+        swimmerId={swimmer.id}
+        swimmerName={swimmer.full_name}
+        initialHasPin={DataStore.hasSwimmerPin(swimmer.id)}
+      />
 
       {/* Squad Persona & Polla Meter Card */}
       <div className={cn("p-6 rounded-3xl border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4", rank.colorScheme.bg, rank.colorScheme.border)}>

@@ -85,6 +85,11 @@ function getInitialStore(forceDemo = false): StoreState {
             "Friendly reminder for our upcoming swimming session. Don't forget your goggles, cap, and hydration!",
         },
       },
+      swimmer_pins: {
+        key: "swimmer_pins",
+        value: {},
+        updated_at: new Date().toISOString(),
+      },
     },
   };
 }
@@ -167,8 +172,72 @@ export const DataStore = {
       );
     }
 
-    // Attach computed stats
+    // Attach computed stats based on COMPLETED sessions held by the squad
+    const completedSessions = store.sessions
+      .filter((s) => s.status === "completed" || s.is_finalized)
+      .sort((a, b) => {
+        const dateDiff = (a.date || "").localeCompare(b.date || "");
+        if (dateDiff !== 0) return dateDiff;
+        return (a.start_time || "").localeCompare(b.start_time || "");
+      });
+
     return result.map((swimmer) => {
+      // If completed sessions exist, evaluate attendance against all completed sessions held by the squad
+      if (completedSessions.length > 0) {
+        let present = 0;
+        let late = 0;
+        let absent = 0;
+        let excused = 0;
+
+        const datesWithStatus = completedSessions.map((sess) => {
+          const record = store.attendance.find(
+            (a) => a.session_id === sess.id && a.swimmer_id === swimmer.id
+          );
+
+          let status: AttendanceStatus = "absent";
+          if (record) {
+            if (record.status === "present") status = "present";
+            else if (record.status === "late") status = "late";
+            else if (record.status === "excused") status = "excused";
+            else if (record.status === "absent") status = "absent";
+            else status = "absent"; // "not_marked" in a completed session is an unexcused absence
+          }
+
+          if (status === "present") present++;
+          else if (status === "late") late++;
+          else if (status === "excused") excused++;
+          else absent++;
+
+          return {
+            date: sess.date,
+            status,
+          };
+        });
+
+        const totalOpportunities = present + late + absent;
+        const rate =
+          totalOpportunities > 0
+            ? Math.round(((present + late) / totalOpportunities) * 1000) / 10
+            : 0;
+
+        const streaks = calculateStreaks(datesWithStatus);
+
+        return {
+          ...swimmer,
+          attendance_stats: {
+            total: totalOpportunities,
+            present,
+            late,
+            absent,
+            excused,
+            rate,
+            currentStreak: streaks.currentStreak,
+            longestStreak: streaks.longestStreak,
+          },
+        };
+      }
+
+      // Fallback if no completed sessions exist yet: compute from any marked records
       const swimmerRecords = store.attendance.filter(
         (a) => a.swimmer_id === swimmer.id
       );
@@ -431,12 +500,39 @@ export const DataStore = {
 
   finalizeSession(id: string, adminId?: string): SwimSession | null {
     const now = new Date().toISOString();
-    return this.updateSession(id, {
+    const updated = this.updateSession(id, {
       is_finalized: true,
       status: "completed",
       finalized_at: now,
       finalized_by: adminId || "admin",
     });
+
+    if (updated) {
+      // Ensure all active squad members have resolved attendance; unmarked becomes absent
+      const activeSwimmers = store.swimmers.filter((s) => s.status === "active");
+      for (const swimmer of activeSwimmers) {
+        const record = store.attendance.find(
+          (a) => a.session_id === id && a.swimmer_id === swimmer.id
+        );
+        if (!record) {
+          store.attendance.push({
+            id: `att-${id}-${swimmer.id}`,
+            session_id: id,
+            swimmer_id: swimmer.id,
+            status: "absent",
+            notes: "Unmarked at finalization",
+            marked_at: now,
+            updated_at: now,
+          });
+        } else if (record.status === "not_marked") {
+          record.status = "absent";
+          record.notes = record.notes || "Unmarked at finalization";
+          record.updated_at = now;
+        }
+      }
+    }
+
+    return updated;
   },
 
   reopenSession(id: string): SwimSession | null {
@@ -814,18 +910,56 @@ export const DataStore = {
   },
 
   getDashboardStats() {
-    const activeSwimmers = store.swimmers.filter((s) => s.status === "active").length;
-    const completedSessions = store.sessions.filter((s) => s.status === "completed").length;
+    const activeSwimmersList = store.swimmers.filter((s) => s.status === "active");
+    const activeSwimmers = activeSwimmersList.length;
+    const completedSessionsList = store.sessions.filter(
+      (s) => s.status === "completed" || s.is_finalized
+    );
+    const completedSessions = completedSessionsList.length;
     const scheduledSessions = store.sessions.filter((s) => s.status === "scheduled").length;
 
-    // Attendance rate for all completed sessions
-    const completedSessionIds = new Set(
-      store.sessions.filter((s) => s.status === "completed").map((s) => s.id)
-    );
-    const relevantRecords = store.attendance.filter((a) =>
-      completedSessionIds.has(a.session_id)
-    );
-    const overallRate = calculateAttendanceRate(relevantRecords);
+    // Calculate squad overall attendance rate across all completed sessions
+    let totalPresent = 0;
+    let totalLate = 0;
+    let totalAbsent = 0;
+
+    if (completedSessionsList.length > 0 && activeSwimmersList.length > 0) {
+      for (const sess of completedSessionsList) {
+        for (const swimmer of activeSwimmersList) {
+          const record = store.attendance.find(
+            (a) => a.session_id === sess.id && a.swimmer_id === swimmer.id
+          );
+          if (record) {
+            if (record.status === "present") totalPresent++;
+            else if (record.status === "late") totalLate++;
+            else if (record.status === "excused") {
+              // Excused sessions are excluded from denominator
+            } else {
+              totalAbsent++; // absent or not_marked in completed session
+            }
+          } else {
+            totalAbsent++; // missing record in completed session is absent
+          }
+        }
+      }
+    } else {
+      // Fallback if no completed sessions or active swimmers
+      const completedSessionIds = new Set(completedSessionsList.map((s) => s.id));
+      const relevantRecords = store.attendance.filter((a) =>
+        completedSessionIds.has(a.session_id)
+      );
+      for (const r of relevantRecords) {
+        if (r.status === "present") totalPresent++;
+        else if (r.status === "late") totalLate++;
+        else if (r.status === "absent") totalAbsent++;
+      }
+    }
+
+    const totalOpportunities = totalPresent + totalLate + totalAbsent;
+    const overallAttendanceRate =
+      totalOpportunities > 0
+        ? Math.round(((totalPresent + totalLate) / totalOpportunities) * 1000) / 10
+        : 0;
 
     // Sessions this month
     const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -845,9 +979,9 @@ export const DataStore = {
       activeSwimmers,
       completedSessions,
       scheduledSessions,
-      overallAttendanceRate: overallRate.attendanceRate,
+      overallAttendanceRate,
       sessionsThisMonth,
-      totalRecords: relevantRecords.length,
+      totalRecords: totalOpportunities,
       totalLateCount,
       avgMinutesLate,
     };
@@ -872,6 +1006,49 @@ export const DataStore = {
   // ---------------------------------------------------------------------------
   // Swimmer Portal & Squad Pass
   // ---------------------------------------------------------------------------
+  getSwimmerPinHash(swimmerId: string): string | null {
+    const pinsSetting = store.settings["swimmer_pins"];
+    if (!pinsSetting || typeof pinsSetting.value !== "object" || pinsSetting.value === null) {
+      return null;
+    }
+    const val = (pinsSetting.value as Record<string, string>)[swimmerId];
+    return typeof val === "string" && val.length > 0 ? val : null;
+  },
+
+  hasSwimmerPin(swimmerId: string): boolean {
+    return Boolean(this.getSwimmerPinHash(swimmerId));
+  },
+
+  setSwimmerPin(swimmerId: string, pinHash: string): void {
+    const pinsSetting = store.settings["swimmer_pins"];
+    const existing =
+      pinsSetting && typeof pinsSetting.value === "object" && pinsSetting.value !== null
+        ? (pinsSetting.value as Record<string, string>)
+        : {};
+    store.settings["swimmer_pins"] = {
+      key: "swimmer_pins",
+      value: {
+        ...existing,
+        [swimmerId]: pinHash,
+      },
+      updated_at: new Date().toISOString(),
+    };
+  },
+
+  deleteSwimmerPin(swimmerId: string): void {
+    const pinsSetting = store.settings["swimmer_pins"];
+    const existing =
+      pinsSetting && typeof pinsSetting.value === "object" && pinsSetting.value !== null
+        ? { ...(pinsSetting.value as Record<string, string>) }
+        : {};
+    delete existing[swimmerId];
+    store.settings["swimmer_pins"] = {
+      key: "swimmer_pins",
+      value: existing,
+      updated_at: new Date().toISOString(),
+    };
+  },
+
   getSwimmerByToken(token: string): Swimmer | null {
     if (!token) return null;
     const cleanToken = token.trim();
@@ -894,20 +1071,52 @@ export const DataStore = {
   },
 
   getSwimmerAttendanceHistory(swimmerId: string) {
-    const records = store.attendance.filter((a) => a.swimmer_id === swimmerId);
-    return records
-      .map((r) => {
-        const session = store.sessions.find((s) => s.id === r.session_id);
-        return {
-          ...r,
-          session: session || null,
-        };
-      })
-      .sort((a, b) => {
-        const dateA = a.session?.date || "";
-        const dateB = b.session?.date || "";
-        return dateB.localeCompare(dateA);
+    const completedSessions = store.sessions.filter(
+      (s) => s.status === "completed" || s.is_finalized
+    );
+    const existingRecords = store.attendance.filter((a) => a.swimmer_id === swimmerId);
+    const recordMap = new Map<string, (typeof existingRecords)[0]>();
+    for (const r of existingRecords) {
+      recordMap.set(r.session_id, r);
+    }
+
+    const result: Array<AttendanceRecord & { session: SwimSession | null }> = [];
+
+    // All existing records for this swimmer
+    for (const r of existingRecords) {
+      const session = store.sessions.find((s) => s.id === r.session_id);
+      let status = r.status;
+      // If the session was completed and status is still not_marked, it represents an unexcused absence
+      if (session && (session.status === "completed" || session.is_finalized) && status === "not_marked") {
+        status = "absent";
+      }
+      result.push({
+        ...r,
+        status,
+        session: session || null,
       });
+    }
+
+    // Add any completed sessions where the swimmer had no record at all (unexcused absence)
+    for (const compSess of completedSessions) {
+      if (!recordMap.has(compSess.id)) {
+        result.push({
+          id: `att-absent-${compSess.id}-${swimmerId}`,
+          session_id: compSess.id,
+          swimmer_id: swimmerId,
+          status: "absent",
+          notes: "Did not attend",
+          marked_at: compSess.date,
+          session: compSess,
+        });
+      }
+    }
+
+    return result.sort((a, b) => {
+      const dateA = a.session?.date || "";
+      const dateB = b.session?.date || "";
+      return dateB.localeCompare(dateA);
+    });
   },
 
   submitSwimmerRsvp(

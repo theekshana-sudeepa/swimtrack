@@ -4,6 +4,7 @@ import { Swimmer, SwimSession } from "@/types/database";
 import { DataStore } from "./data-store";
 import UpcomingSessionEmail from "@/emails/upcoming-session";
 import WelcomeSwimmerEmail from "@/emails/welcome-swimmer";
+import SwimmerPassSetupEmail from "@/emails/swimmer-pass-setup";
 import AdminNewSwimmerAlertEmail from "@/emails/admin-new-swimmer-alert";
 
 function getResendClient(): Resend | null {
@@ -275,6 +276,109 @@ export async function sendWelcomeEmail({
     const errorMsg = err instanceof Error ? err.message : "Failed to dispatch welcome email";
     DataStore.recordReminderDelivery({
       claim_key: `welcome:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: swimmer.email,
+      status: "failed",
+      error_message: errorMsg,
+    });
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function sendSwimmerPassSetupEmail({
+  swimmer,
+}: {
+  swimmer: Swimmer;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (!swimmer.email || !swimmer.email.includes("@")) {
+    return { success: false, error: "No valid email address configured for this swimmer." };
+  }
+
+  const resend = getResendClient();
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://swim-track-wine.vercel.app";
+  const swimmerToken = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
+  const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmerToken}`;
+  const portalUrl = `${appUrl}/portal`;
+
+  if (!resend) {
+    const isTest = process.env.NODE_ENV === "test" || process.env.VITEST;
+    if (isTest) {
+      return {
+        success: true,
+        messageId: `sim_setup_${Date.now()}`,
+      };
+    }
+
+    const errorMsg =
+      "RESEND_API_KEY is missing or invalid in environment variables. Please configure your Resend API key to deliver live emails.";
+    DataStore.recordReminderDelivery({
+      claim_key: `pass_setup:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: swimmer.email,
+      status: "failed",
+      error_message: errorMsg,
+    });
+
+    return {
+      success: false,
+      error: errorMsg,
+    };
+  }
+
+  try {
+    const emailElement = React.createElement(SwimmerPassSetupEmail, {
+      swimmerName: swimmer.full_name,
+      nickname: swimmer.nickname || undefined,
+      optOutUrl,
+      portalUrl,
+    });
+
+    const { data, error } = await resend.emails.send(
+      {
+        from: fromEmail,
+        to: [swimmer.email],
+        subject: `🏊 Quick Guide: How to access your SwimTrack Pass & Set your PIN, ${swimmer.nickname || swimmer.full_name}!`,
+        react: emailElement,
+      },
+      {
+        idempotencyKey: `swimtrack/pass-setup/${swimmer.id}/${Date.now()}`,
+      }
+    );
+
+    if (error) {
+      DataStore.recordReminderDelivery({
+        claim_key: `pass_setup:${swimmer.id}:${Date.now()}`,
+        session_id: "00000000-0000-0000-0000-000000000000",
+        swimmer_id: swimmer.id,
+        reminder_type: "manual",
+        recipient_email: swimmer.email,
+        status: "failed",
+        error_message: error.message,
+      });
+      return { success: false, error: error.message };
+    }
+
+    DataStore.recordReminderDelivery({
+      claim_key: `pass_setup:${swimmer.id}:${Date.now()}`,
+      session_id: "00000000-0000-0000-0000-000000000000",
+      swimmer_id: swimmer.id,
+      reminder_type: "manual",
+      recipient_email: swimmer.email,
+      status: "sent",
+      provider_message_id: data?.id,
+    });
+
+    return { success: true, messageId: data?.id };
+  } catch (err: unknown) {
+    const errorMsg =
+      err instanceof Error ? err.message : "Failed to dispatch pass setup guide email";
+    DataStore.recordReminderDelivery({
+      claim_key: `pass_setup:${swimmer.id}:${Date.now()}`,
       session_id: "00000000-0000-0000-0000-000000000000",
       swimmer_id: swimmer.id,
       reminder_type: "manual",

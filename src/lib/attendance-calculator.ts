@@ -8,7 +8,10 @@ import { AttendanceRecord, AttendanceStatus, AttendanceCalculationResult } from 
  * - Excused
  * - Not Marked
  */
-export function calculateAttendanceRate(records: Array<{ status: AttendanceStatus }>): AttendanceCalculationResult {
+export function calculateAttendanceRate(
+  records: Array<{ status: AttendanceStatus }>,
+  options?: { treatNotMarkedAsAbsent?: boolean }
+): AttendanceCalculationResult {
   let present = 0;
   let late = 0;
   let absent = 0;
@@ -31,7 +34,11 @@ export function calculateAttendanceRate(records: Array<{ status: AttendanceStatu
         break;
       case "not_marked":
       default:
-        notMarked++;
+        if (options?.treatNotMarkedAsAbsent) {
+          absent++;
+        } else {
+          notMarked++;
+        }
         break;
     }
   }

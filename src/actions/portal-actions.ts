@@ -1,11 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
-import { sanitizeString } from "@/lib/security";
-import { chalkboardRateLimiter } from "@/lib/rate-limiter";
+import {
+  sanitizeString,
+  hashSwimmerPin,
+  verifySwimmerPinSecure,
+  extractClientIp,
+} from "@/lib/security";
+import { chalkboardRateLimiter, swimmerPinRateLimiter } from "@/lib/rate-limiter";
+import { getAdminSession, SWIMMER_COOKIE_NAME } from "@/lib/auth";
 import { validateGeofenceCheckin, getSessionVenueCoordinates } from "@/lib/geo-fence";
 
 /**
@@ -200,6 +206,248 @@ export async function selfCheckInWithGeofenceAction(
     minutesLate: validation.minutesLate,
     distanceMeters: validation.distanceMeters,
     radiusMeters: validation.radiusMeters,
+  };
+}
+
+/**
+ * Returns the list of active squad members for the Swimmer Pass selection screen.
+ * For privacy and security, pass tokens are strictly excluded.
+ */
+export async function getPortalSquadListAction() {
+  await DataStore.syncFromSupabase();
+  const swimmers = DataStore.getSwimmers({ status: "active" });
+  return swimmers.map((s) => ({
+    id: s.id,
+    full_name: s.full_name,
+    nickname: s.nickname || null,
+    avatar_color: s.avatar_color || "ocean",
+    hasPin: DataStore.hasSwimmerPin(s.id),
+  }));
+}
+
+/**
+ * Checks if the current visitor already has a valid swimmer session cookie.
+ */
+export async function getRememberedSwimmerAction() {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SWIMMER_COOKIE_NAME)?.value;
+    if (!token) return { loggedIn: false };
+
+    await DataStore.syncFromSupabase();
+    const swimmer = DataStore.getSwimmerByToken(token);
+    if (!swimmer || swimmer.status !== "active") {
+      return { loggedIn: false };
+    }
+
+    return {
+      loggedIn: true,
+      swimmer: {
+        id: swimmer.id,
+        full_name: swimmer.full_name,
+        nickname: swimmer.nickname || null,
+        avatar_color: swimmer.avatar_color || "ocean",
+        token,
+      },
+    };
+  } catch {
+    return { loggedIn: false };
+  }
+}
+
+/**
+ * Verifies a swimmer's 4-digit PIN, with anti-brute-force rate limiting.
+ * On success, sets a persistent session cookie and returns their personal pass token.
+ */
+export async function loginSwimmerWithPinAction(swimmerId: string, pin: string) {
+  await DataStore.syncFromSupabase();
+  const swimmer = DataStore.getSwimmerById(swimmerId);
+  if (!swimmer || swimmer.status !== "active") {
+    return { success: false, error: "Active swimmer profile not found." };
+  }
+
+  // Rate limiting per swimmer + client IP
+  let clientIp = "127.0.0.1";
+  try {
+    const reqHeaders = await headers();
+    clientIp = extractClientIp(reqHeaders);
+  } catch {
+    // fallback
+  }
+
+  const rateLimitKey = `pin_${swimmerId}_${clientIp}`;
+  const rateCheck = swimmerPinRateLimiter.check(rateLimitKey);
+  if (!rateCheck.allowed) {
+    return {
+      success: false,
+      error: `Too many failed PIN attempts. Locked out for ${rateCheck.retryAfterSeconds} seconds.`,
+    };
+  }
+
+  const storedHash = DataStore.getSwimmerPinHash(swimmerId);
+  if (!storedHash) {
+    return {
+      success: false,
+      needsSetup: true,
+      error: "No PIN has been configured for this profile yet. Please create your PIN.",
+    };
+  }
+
+  const cleanPin = (pin || "").trim();
+  const isValid = verifySwimmerPinSecure(swimmerId, cleanPin, storedHash);
+
+  if (!isValid) {
+    swimmerPinRateLimiter.recordFailure(rateLimitKey);
+    const checkAfter = swimmerPinRateLimiter.check(rateLimitKey);
+    const remaining = checkAfter.remainingAttempts;
+    return {
+      success: false,
+      error:
+        remaining > 0
+          ? `Incorrect PIN. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+          : `Incorrect PIN. Profile locked for ${checkAfter.retryAfterSeconds} seconds.`,
+    };
+  }
+
+  // Success: reset rate limit
+  swimmerPinRateLimiter.reset(rateLimitKey);
+
+  const token = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
+
+  const cookieStore = await cookies();
+  cookieStore.set(SWIMMER_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 90, // 90 days
+  });
+
+  return {
+    success: true,
+    token,
+    swimmerName: swimmer.nickname || swimmer.full_name,
+  };
+}
+
+/**
+ * Creates a personal 4-digit PIN for first-time swimmer setup.
+ */
+export async function setupSwimmerPinAction(
+  swimmerId: string,
+  pin: string,
+  confirmPin: string
+) {
+  await DataStore.syncFromSupabase();
+  const swimmer = DataStore.getSwimmerById(swimmerId);
+  if (!swimmer || swimmer.status !== "active") {
+    return { success: false, error: "Active swimmer profile not found." };
+  }
+
+  if (DataStore.hasSwimmerPin(swimmerId)) {
+    return {
+      success: false,
+      error:
+        "A security PIN is already configured for this swimmer. Please enter your PIN or ask the coach to reset it.",
+    };
+  }
+
+  const cleanPin = (pin || "").trim();
+  const cleanConfirm = (confirmPin || "").trim();
+
+  if (!/^\d{4}$/.test(cleanPin)) {
+    return {
+      success: false,
+      error: "PIN must be exactly 4 numeric digits (e.g. 1234).",
+    };
+  }
+
+  if (cleanPin !== cleanConfirm) {
+    return {
+      success: false,
+      error: "The PINs you entered do not match. Please try again.",
+    };
+  }
+
+  const hashed = hashSwimmerPin(swimmerId, cleanPin);
+  DataStore.setSwimmerPin(swimmerId, hashed);
+
+  // Sync to Supabase
+  const pinsObj =
+    (DataStore.getAppSettings()["swimmer_pins"]?.value as Record<string, unknown>) || {};
+  await SupabaseDB.upsertAppSetting("swimmer_pins", pinsObj);
+
+  const token = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
+
+  const cookieStore = await cookies();
+  cookieStore.set(SWIMMER_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 90,
+  });
+
+  revalidatePath("/portal");
+  revalidatePath(`/portal/${token}`);
+
+  return {
+    success: true,
+    token,
+    swimmerName: swimmer.nickname || swimmer.full_name,
+  };
+}
+
+/**
+ * Logs out the swimmer by clearing their session cookie.
+ */
+export async function logoutSwimmerAction() {
+  const cookieStore = await cookies();
+  cookieStore.delete(SWIMMER_COOKIE_NAME);
+  revalidatePath("/portal");
+  return { success: true };
+}
+
+/**
+ * Admin action to reset or manually set a swimmer's 4-digit security PIN.
+ */
+export async function adminResetSwimmerPinAction(swimmerId: string, newPin?: string) {
+  const admin = await getAdminSession();
+  if (!admin) {
+    return { success: false, error: "Administrator authorization required." };
+  }
+
+  await DataStore.syncFromSupabase();
+  const swimmer = DataStore.getSwimmerById(swimmerId);
+  if (!swimmer) {
+    return { success: false, error: "Swimmer not found." };
+  }
+
+  if (newPin && newPin.trim()) {
+    const cleanPin = newPin.trim();
+    if (!/^\d{4}$/.test(cleanPin)) {
+      return { success: false, error: "PIN must be exactly 4 numeric digits." };
+    }
+    const hashed = hashSwimmerPin(swimmerId, cleanPin);
+    DataStore.setSwimmerPin(swimmerId, hashed);
+  } else {
+    // Clear PIN so swimmer can set it themselves
+    DataStore.deleteSwimmerPin(swimmerId);
+  }
+
+  // Persist to Supabase
+  const pinsObj =
+    (DataStore.getAppSettings()["swimmer_pins"]?.value as Record<string, unknown>) || {};
+  await SupabaseDB.upsertAppSetting("swimmer_pins", pinsObj);
+
+  revalidatePath("/portal");
+  revalidatePath(`/swimmers/${swimmerId}`);
+
+  return {
+    success: true,
+    message: newPin?.trim()
+      ? `Security PIN for ${swimmer.full_name} updated successfully.`
+      : `Security PIN for ${swimmer.full_name} has been reset. They can set a new PIN on next login.`,
   };
 }
 

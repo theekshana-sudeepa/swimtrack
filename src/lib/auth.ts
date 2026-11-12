@@ -4,6 +4,7 @@ import { getSupabaseClient } from "./supabase-client";
 import { timingSafeMatch } from "./security";
 
 export const ADMIN_COOKIE_NAME = "swimtrack_admin_session";
+export const SWIMMER_COOKIE_NAME = "swimtrack_swimmer_session";
 export const DEMO_ADMIN_TOKEN = "swimtrack_demo_admin_authenticated_2026";
 
 export interface AdminUser {

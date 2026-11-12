@@ -220,6 +220,21 @@ export async function finalizeSessionAction(id: string) {
     if (error) {
       console.error("[finalizeSessionAction] Supabase update error:", error);
     }
+
+    // Automatically mark any remaining un-marked attendance records as absent
+    const { error: attError } = await supabase
+      .from("attendance")
+      .update({
+        status: "absent",
+        notes: "Unmarked at finalization",
+        updated_at: now,
+      })
+      .eq("session_id", id)
+      .eq("status", "not_marked");
+
+    if (attError) {
+      console.error("[finalizeSessionAction] Supabase attendance update error:", attError);
+    }
   }
 
   if (session) {
@@ -232,6 +247,8 @@ export async function finalizeSessionAction(id: string) {
   revalidatePath("/dashboard");
   revalidatePath("/analytics");
   revalidatePath("/calendar");
+  revalidatePath("/swimmers");
+  revalidatePath("/portal");
 
   return { success: true, is_finalized: true, status: "completed" };
 }
