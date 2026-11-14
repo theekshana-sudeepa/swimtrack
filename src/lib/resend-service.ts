@@ -80,7 +80,14 @@ export async function sendSessionReminder({
   const resend = getResendClient();
   const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmer.reminder_preferences?.opt_out_token || "general"}`;
+  const swimmerToken =
+    (await ensureStrongSwimmerToken(swimmer.id)) ||
+    swimmer.reminder_preferences?.opt_out_token ||
+    "";
+  const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmerToken || "general"}`;
+  const portalUrl = swimmerToken
+    ? `${appUrl}/portal/${encodeURIComponent(swimmerToken)}#pool-radar`
+    : `${appUrl}/portal#pool-radar`;
 
   // If no live Resend API key is configured (local dev/demo), simulate successful send cleanly
   if (!resend) {
@@ -112,6 +119,7 @@ export async function sendSessionReminder({
       timeStr: `${session.start_time} - ${session.end_time}`,
       location: session.location,
       customMessage: customMessage || undefined,
+      portalUrl,
       optOutUrl,
     });
 

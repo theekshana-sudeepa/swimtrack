@@ -19,6 +19,7 @@ interface UpcomingSessionEmailProps {
   timeStr?: string;
   location?: string;
   customMessage?: string;
+  portalUrl?: string;
   optOutUrl?: string;
 }
 
@@ -29,6 +30,7 @@ export default function UpcomingSessionEmail({
   timeStr = "06:30 AM – 08:00 AM",
   location = "Bandaranayake College Swimming Pool Complex, Gampaha",
   customMessage = "Friendly reminder for our upcoming swim session! Bring your goggles, cap, and hydration.",
+  portalUrl = "https://swim-track-wine.vercel.app/portal#pool-radar",
   optOutUrl = "https://swimtrack.app/reminders/opt-out",
 }: UpcomingSessionEmailProps) {
   return (
@@ -65,8 +67,23 @@ export default function UpcomingSessionEmail({
               </Text>
             </Section>
 
+            {/* Pool Radar Check-In CTA Button */}
+            {portalUrl && (
+              <Section style={{ textAlign: "center", margin: "24px 0 22px 0" }}>
+                <Link href={portalUrl} style={buttonStyle}>
+                  📍 Open Pool Radar &amp; Mark Attendance 🏊 &rarr;
+                </Link>
+                <Text style={tipTextStyle}>
+                  🔒 <strong>On-Location GPS Only:</strong> Check-in unlocks poolside within{" "}
+                  <strong>75m</strong> of the pool (starting 30 mins before practice) using your{" "}
+                  <strong>4-digit PIN</strong>. Can&apos;t make it? Tap above at least{" "}
+                  <strong>60 mins before start</strong> to report an excused absence.
+                </Text>
+              </Section>
+            )}
+
             <Text style={paragraphStyle}>
-              See you at the pool deck! If you are unable to make it, please let the administrator know beforehand.
+              See you at the pool deck! Don&apos;t forget your goggles, cap, and water bottle.
             </Text>
           </Section>
 
@@ -173,6 +190,30 @@ const infoRowStyle: React.CSSProperties = {
   lineHeight: "20px",
   color: "#173b54",
   margin: "4px 0",
+};
+
+const buttonStyle: React.CSSProperties = {
+  backgroundColor: "#22C7D8",
+  color: "#071B2B",
+  padding: "14px 26px",
+  borderRadius: "12px",
+  fontWeight: 800,
+  fontSize: "14px",
+  textDecoration: "none",
+  display: "inline-block",
+  textAlign: "center",
+  boxSizing: "border-box",
+  boxShadow: "0 4px 14px rgba(34, 199, 216, 0.35)",
+};
+
+const tipTextStyle: React.CSSProperties = {
+  fontSize: "12px",
+  lineHeight: "17px",
+  color: "#475569",
+  marginTop: "12px",
+  maxWidth: "480px",
+  marginLeft: "auto",
+  marginRight: "auto",
 };
 
 const footerStyle: React.CSSProperties = {

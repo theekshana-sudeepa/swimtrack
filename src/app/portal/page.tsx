@@ -10,8 +10,14 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function SwimmerPortalEntryPage() {
+export default async function SwimmerPortalEntryPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ swimmer?: string }>;
+}) {
   await DataStore.syncFromSupabase({ maxAgeMs: 10_000 });
+  const resolvedParams = searchParams ? await searchParams : undefined;
+  const preselectedSwimmerId = resolvedParams?.swimmer || null;
 
   // Read device persistent cookie
   const cookieStore = await cookies();
@@ -46,6 +52,7 @@ export default async function SwimmerPortalEntryPage() {
     <SwimmerPortalLoginClient
       initialMembers={squadMembers}
       rememberedSwimmer={rememberedSwimmer}
+      preselectedSwimmerId={preselectedSwimmerId}
     />
   );
 }

@@ -563,6 +563,15 @@ export function ReminderClient({
                   </div>
                 </div>
 
+                <div className="pt-2 text-center space-y-1.5">
+                  <span className="inline-block px-4 py-2 rounded-lg bg-aqua text-ocean-950 font-bold text-xs shadow-sm">
+                    📍 Open Pool Radar &amp; Mark Attendance 🏊 &rarr;
+                  </span>
+                  <p className="text-[10px] text-muted-foreground">
+                    🔒 On-Location GPS Only (within 75m of the pool, 30 mins before start, with 4-digit PIN).
+                  </p>
+                </div>
+
                 <p className="text-[11px] text-muted-foreground">
                   See you on deck! Pack your swimwear, goggles, and towel.
                 </p>

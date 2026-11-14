@@ -59,9 +59,10 @@ export default async function SwimmerPortalPage({
   }
 
   // A pass link alone is not enough: the visitor must have signed in with their PIN on this device.
+  // Pre-select their profile on /portal so they only need to type their 4-digit PIN.
   const cookieToken = (await cookies()).get(SWIMMER_COOKIE_NAME)?.value;
   if (!cookieToken || !timingSafeMatch(cookieToken, token.trim())) {
-    redirect("/portal");
+    redirect(`/portal?swimmer=${encodeURIComponent(swimmer.id)}`);
   }
 
   const nextSession = DataStore.getNextUpcomingSession();

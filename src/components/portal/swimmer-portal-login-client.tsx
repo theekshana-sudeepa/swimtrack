@@ -48,11 +48,13 @@ export interface RememberedSwimmer {
 interface SwimmerPortalLoginClientProps {
   initialMembers: PortalSquadMember[];
   rememberedSwimmer?: RememberedSwimmer | null;
+  preselectedSwimmerId?: string | null;
 }
 
 export function SwimmerPortalLoginClient({
   initialMembers,
   rememberedSwimmer: initialRemembered,
+  preselectedSwimmerId,
 }: SwimmerPortalLoginClientProps) {
   const router = useRouter();
   const [members, setMembers] = React.useState<PortalSquadMember[]>(initialMembers);
@@ -99,6 +101,16 @@ export function SwimmerPortalLoginClient({
       pinInputRefs.current[0]?.focus();
     }, 100);
   }
+
+  // If the swimmer arrived from a personal reminder link without a session cookie, auto-open their PIN prompt
+  React.useEffect(() => {
+    if (!preselectedSwimmerId) return;
+    const match = initialMembers.find((m) => m.id === preselectedSwimmerId);
+    if (match) {
+      handleSelectSwimmer(match);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectedSwimmerId]);
 
   function handleCloseModal() {
     if (isSubmitting) return;

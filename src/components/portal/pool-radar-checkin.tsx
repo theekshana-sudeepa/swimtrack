@@ -308,7 +308,10 @@ export function PoolRadarCheckin({
   }
 
   return (
-    <div className="rounded-3xl border border-aqua/30 bg-card/90 backdrop-blur-md p-5 sm:p-6 shadow-xl space-y-5 relative overflow-hidden">
+    <div
+      id="pool-radar"
+      className="scroll-mt-6 rounded-3xl border border-aqua/30 bg-card/90 backdrop-blur-md p-5 sm:p-6 shadow-xl space-y-5 relative overflow-hidden"
+    >
       {/* Background Ambience Glow */}
       <div
         className={cn(
