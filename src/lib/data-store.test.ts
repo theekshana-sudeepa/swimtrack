@@ -150,6 +150,26 @@ describe("DataStore In-Memory Repository", () => {
     expect(stats?.currentStreak).toBe(completed.length - 1);
   });
 
+  it("deletes a session and cascades cleanup to attendance and audit logs", () => {
+    const session = DataStore.getSessions({ status: "scheduled" })[0];
+    const initialAttendance = DataStore.getSessionAttendance(session.id);
+    expect(initialAttendance.length).toBeGreaterThan(0);
+
+    const deleted = DataStore.deleteSession(session.id);
+    expect(deleted).toBe(true);
+
+    // Session is no longer in store
+    expect(DataStore.getSessionById(session.id)).toBeNull();
+
+    // Attendance records for this session are cleaned up
+    const remainingAttendance = DataStore.getSessionAttendance(session.id);
+    expect(remainingAttendance.length).toBe(0);
+
+    // Audit logs for this session are cleaned up
+    const remainingAudit = DataStore.getAttendanceAuditLogs({ sessionId: session.id });
+    expect(remainingAudit.length).toBe(0);
+  });
+
   describe("Option 1: Swimmer Security PIN System", () => {
     it("hashes and securely verifies swimmer 4-digit PINs", () => {
       const swimmerId = "test-swimmer-id-123";

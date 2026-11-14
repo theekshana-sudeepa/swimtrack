@@ -146,18 +146,30 @@ export async function updateSessionAction(id: string, formData: FormData) {
 }
 
 export async function deleteSessionAction(id: string) {
-  await requireAdminSession();
-  await DataStore.syncFromSupabase();
+  try {
+    await requireAdminSession();
+    await DataStore.syncFromSupabase();
 
-  DataStore.deleteSession(id);
-  await SupabaseDB.deleteSession(id);
+    DataStore.deleteSession(id);
+    await SupabaseDB.deleteSession(id);
 
-  revalidatePath("/sessions");
-  revalidatePath("/calendar");
-  revalidatePath("/dashboard");
-  revalidatePath("/attendance");
+    revalidatePath("/sessions");
+    revalidatePath(`/sessions/${id}`);
+    revalidatePath("/calendar");
+    revalidatePath("/dashboard");
+    revalidatePath("/attendance");
+    revalidatePath("/analytics");
+    revalidatePath("/swimmers");
+    revalidatePath("/portal");
 
-  return { success: true };
+    return { success: true };
+  } catch (err) {
+    console.error("[deleteSessionAction] Error:", err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to delete session",
+    };
+  }
 }
 
 export async function cancelSessionAction(id: string) {

@@ -17,6 +17,7 @@ import {
   X,
   Lock,
   Unlock,
+  Trash2,
 } from "lucide-react";
 import { SwimSession } from "@/types/database";
 import dynamic from "next/dynamic";
@@ -32,6 +33,7 @@ import {
   cancelSessionAction,
   finalizeSessionAction,
   reopenSessionAction,
+  deleteSessionAction,
 } from "@/actions/session-actions";
 import { formatTime, cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -51,6 +53,8 @@ export function SessionListClient({
   const [showCreateSingleModal, setShowCreateSingleModal] = React.useState(false);
   const [showCreateSeriesModal, setShowCreateSeriesModal] = React.useState(false);
   const [actionPendingId, setActionPendingId] = React.useState<string | null>(null);
+  const [sessionToDelete, setSessionToDelete] = React.useState<SwimSession | null>(null);
+  const [isDeletingSession, setIsDeletingSession] = React.useState(false);
 
   // Custom Map Location State for 30m geofencing
   const [selectedGeo, setSelectedGeo] = React.useState<SelectedLocationData>({
@@ -174,6 +178,26 @@ export function SessionListClient({
       await cancelSessionAction(id);
       toast.info("Session cancelled.");
       router.refresh();
+    }
+  }
+
+  async function handleDeleteSession() {
+    if (!sessionToDelete) return;
+    setIsDeletingSession(true);
+    try {
+      const res = await deleteSessionAction(sessionToDelete.id);
+      if (res?.success) {
+        toast.success(`Session "${sessionToDelete.title}" deleted.`);
+        setSessions((prev) => prev.filter((s) => s.id !== sessionToDelete.id));
+        setSessionToDelete(null);
+        router.refresh();
+      } else {
+        toast.error((res as { error?: string })?.error || "Failed to delete session.");
+      }
+    } catch {
+      toast.error("An error occurred while deleting session.");
+    } finally {
+      setIsDeletingSession(false);
     }
   }
 
@@ -363,10 +387,21 @@ export function SessionListClient({
 
                   <Link
                     href={`/sessions/${session.id}`}
+                    title="View session report and details"
                     className="p-2 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-foreground"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Link>
+
+                  <button
+                    type="button"
+                    disabled={actionPendingId === session.id || isDeletingSession}
+                    onClick={() => setSessionToDelete(session)}
+                    title="Delete session"
+                    className="p-2 rounded-xl border border-destructive/30 bg-destructive/10 hover:bg-destructive/20 text-destructive text-xs font-semibold flex items-center transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             );
@@ -810,6 +845,69 @@ export function SessionListClient({
             radiusMeters: selectedGeo.radiusMeters,
           }}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {sessionToDelete && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-card border border-destructive/40 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-destructive/10 border border-destructive/30 text-destructive flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Delete Swimming Session?
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={() => setSessionToDelete(null)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-destructive/10 border border-destructive/20 text-xs space-y-2">
+              <p className="font-semibold text-destructive">
+                Are you sure you want to permanently delete:
+              </p>
+              <p className="font-bold text-foreground">
+                &ldquo;{sessionToDelete.title}&rdquo; &bull; {sessionToDelete.date}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                All swimmer attendance logs, audit history, and associated data for this session will be permanently erased.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2 border-t border-border/80">
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={() => setSessionToDelete(null)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={handleDeleteSession}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-destructive hover:bg-destructive/90 text-destructive-foreground text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4 stroke-[2.5]" />
+                <span>{isDeletingSession ? "Deleting..." : "Permanently Delete"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

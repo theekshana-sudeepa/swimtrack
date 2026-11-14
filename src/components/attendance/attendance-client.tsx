@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Info,
   MapPin,
+  Trash2,
 } from "lucide-react";
 import {
   AttendanceRecord,
@@ -44,7 +45,11 @@ import {
   addSwimmerToSessionAction,
   syncAllActiveSwimmersToSessionAction,
 } from "@/actions/attendance-actions";
-import { finalizeSessionAction, reopenSessionAction } from "@/actions/session-actions";
+import {
+  finalizeSessionAction,
+  reopenSessionAction,
+  deleteSessionAction,
+} from "@/actions/session-actions";
 import { formatTime, getInitials, cn } from "@/lib/utils";
 import {
   calculateMinutesLate,
@@ -254,6 +259,10 @@ export function AttendanceClient({
   const [showFinalizeWarning, setShowFinalizeWarning] = React.useState(false);
   const [showRecapModal, setShowRecapModal] = React.useState(false);
   const [isFinalizing, setIsFinalizing] = React.useState(false);
+
+  // Delete Session Modal State
+  const [showDeleteModal, setShowDeleteModal] = React.useState(false);
+  const [isDeletingSession, setIsDeletingSession] = React.useState(false);
 
   // Active keyboard focus row index
   const [focusedIndex, setFocusedIndex] = React.useState<number>(0);
@@ -598,6 +607,30 @@ export function AttendanceClient({
     }
   }
 
+  async function handleDeleteSession() {
+    setIsDeletingSession(true);
+    try {
+      const res = await deleteSessionAction(session.id);
+      if (res?.success) {
+        toast.success(`Session "${session.title}" deleted.`);
+        setShowDeleteModal(false);
+        const remainingSessions = allSessions.filter((s) => s.id !== session.id);
+        if (remainingSessions.length > 0) {
+          router.push(`/attendance?session=${remainingSessions[0].id}`);
+        } else {
+          router.push("/sessions");
+        }
+        router.refresh();
+      } else {
+        toast.error((res as { error?: string })?.error || "Failed to delete session.");
+        setIsDeletingSession(false);
+      }
+    } catch {
+      toast.error("An error occurred while deleting session.");
+      setIsDeletingSession(false);
+    }
+  }
+
   // Note Modal Save
   async function handleSaveNote() {
     if (!activeNoteSwimmer) return;
@@ -626,7 +659,8 @@ export function AttendanceClient({
         activeLateRecord !== null ||
         activeExcusedRecord !== null ||
         showAddModal ||
-        showFinalizeWarning
+        showFinalizeWarning ||
+        showDeleteModal
       ) {
         return;
       }
@@ -757,7 +791,7 @@ export function AttendanceClient({
               <button
                 type="button"
                 onClick={handleReopenSession}
-                disabled={isFinalizing}
+                disabled={isFinalizing || isDeletingSession}
                 className="px-3.5 py-2 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-foreground text-xs font-semibold flex items-center gap-1.5 transition-all"
               >
                 <Unlock className="w-3.5 h-3.5 text-aqua" />
@@ -767,13 +801,25 @@ export function AttendanceClient({
               <button
                 type="button"
                 onClick={handleFinalizeClick}
-                disabled={isFinalizing}
+                disabled={isFinalizing || isDeletingSession}
                 className="px-4 py-2 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
               >
                 <Lock className="w-3.5 h-3.5" />
                 <span>Finalize Session</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              disabled={isDeletingSession}
+              aria-label="Delete this session"
+              className="p-2 rounded-xl border border-destructive/30 bg-destructive/10 hover:bg-destructive/20 text-destructive text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95"
+              title="Delete this session"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Delete Session</span>
+            </button>
           </div>
         </div>
 
@@ -1840,6 +1886,69 @@ export function AttendanceClient({
               >
                 <ShieldAlert className="w-4 h-4 stroke-[2.5]" />
                 <span>Confirm Excused Absence</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Session Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-card border border-destructive/40 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-destructive/10 border border-destructive/30 text-destructive flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Delete Swimming Session?
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={() => setShowDeleteModal(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-destructive/10 border border-destructive/20 text-xs space-y-2">
+              <p className="font-semibold text-destructive">
+                Are you sure you want to permanently delete:
+              </p>
+              <p className="font-bold text-foreground">
+                &ldquo;{session.title}&rdquo; &bull; {session.date}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                All {attendance.length} swimmer attendance entries, timestamps, and audit history for this session will be permanently erased.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2 border-t border-border/80">
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={() => setShowDeleteModal(false)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={handleDeleteSession}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-destructive hover:bg-destructive/90 text-destructive-foreground text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4 stroke-[2.5]" />
+                <span>{isDeletingSession ? "Deleting..." : "Permanently Delete"}</span>
               </button>
             </div>
           </div>

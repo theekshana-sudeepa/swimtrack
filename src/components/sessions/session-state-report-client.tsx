@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Calendar,
   Clock,
@@ -24,9 +25,15 @@ import {
   BarChart3,
   ListOrdered,
   Sparkles,
+  Trash2,
+  X,
 } from "lucide-react";
 import { AttendanceRecord, Swimmer, SwimSession } from "@/types/database";
-import { finalizeSessionAction, reopenSessionAction } from "@/actions/session-actions";
+import {
+  finalizeSessionAction,
+  reopenSessionAction,
+  deleteSessionAction,
+} from "@/actions/session-actions";
 import { generateSessionStateReport, SessionStateReport } from "@/lib/session-reports";
 import { formatTime, getInitials, cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -44,11 +51,14 @@ export function SessionStateReportClient({
   swimmers,
   eligibleRemindersCount,
 }: SessionStateReportClientProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<"report" | "roster">("report");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [isFinalized, setIsFinalized] = React.useState(session.is_finalized);
   const [isActionPending, setIsActionPending] = React.useState(false);
+  const [showDeleteModal, setShowDeleteModal] = React.useState(false);
+  const [isDeletingSession, setIsDeletingSession] = React.useState(false);
 
   React.useEffect(() => {
     setIsFinalized(session.is_finalized);
@@ -74,6 +84,25 @@ export function SessionStateReportClient({
       toast.error("Failed to update session finalization status.");
     } finally {
       setIsActionPending(false);
+    }
+  }
+
+  async function handleDeleteSession() {
+    setIsDeletingSession(true);
+    try {
+      const res = await deleteSessionAction(session.id);
+      if (res?.success) {
+        toast.success(`Session "${session.title}" deleted.`);
+        setShowDeleteModal(false);
+        router.push("/sessions");
+        router.refresh();
+      } else {
+        toast.error((res as { error?: string })?.error || "Failed to delete session.");
+        setIsDeletingSession(false);
+      }
+    } catch {
+      toast.error("An error occurred while deleting session.");
+      setIsDeletingSession(false);
     }
   }
 
@@ -238,6 +267,17 @@ export function SessionStateReportClient({
               <Mail className="w-4 h-4 text-aqua" />
               <span>Reminders ({eligibleRemindersCount})</span>
             </Link>
+
+            <button
+              type="button"
+              disabled={isActionPending || isDeletingSession}
+              onClick={() => setShowDeleteModal(true)}
+              title="Delete this session"
+              className="px-3.5 py-2.5 rounded-xl border border-destructive/30 bg-destructive/10 hover:bg-destructive/20 text-destructive font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Delete Session</span>
+            </button>
           </div>
         </div>
 
@@ -781,6 +821,69 @@ export function SessionStateReportClient({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Session Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-card border border-destructive/40 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-destructive/10 border border-destructive/30 text-destructive flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Delete Swimming Session?
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={() => setShowDeleteModal(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-destructive/10 border border-destructive/20 text-xs space-y-2">
+              <p className="font-semibold text-destructive">
+                Are you sure you want to permanently delete:
+              </p>
+              <p className="font-bold text-foreground">
+                &ldquo;{session.title}&rdquo; &bull; {session.date}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                All {attendance.length} attendance records, attendance rate statistics, and audit trails for this session will be permanently erased.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2 border-t border-border/80">
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={() => setShowDeleteModal(false)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                onClick={handleDeleteSession}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-destructive hover:bg-destructive/90 text-destructive-foreground text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4 stroke-[2.5]" />
+                <span>{isDeletingSession ? "Deleting..." : "Permanently Delete"}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

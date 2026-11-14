@@ -518,7 +518,10 @@ export const SupabaseDB = {
     const supabase = getSupabaseAdminClient();
     if (!supabase) return;
     try {
-      await supabase.from("swim_sessions").delete().eq("id", id);
+      const { error } = await supabase.from("swim_sessions").delete().eq("id", id);
+      if (error) {
+        console.error("[SupabaseDB] Error deleting session:", error);
+      }
     } catch (err) {
       console.error("[SupabaseDB] Error deleting session:", err);
     }

@@ -549,6 +549,8 @@ export const DataStore = {
     if (idx === -1) return false;
     store.sessions.splice(idx, 1);
     store.attendance = store.attendance.filter((a) => a.session_id !== id);
+    store.auditLogs = store.auditLogs.filter((l) => l.session_id !== id);
+    store.reminders = store.reminders.filter((d) => d.session_id !== id);
     return true;
   },
 
@@ -622,6 +624,11 @@ export const DataStore = {
   // Attendance Command Center Operations
   // ---------------------------------------------------------------------------
   getSessionAttendance(sessionId: string): AttendanceRecord[] {
+    const session = store.sessions.find((s) => s.id === sessionId);
+    if (!session) {
+      return [];
+    }
+
     // Automatically ensure all active squad members have an attendance record for this session
     const activeSwimmers = store.swimmers.filter((s) => s.status === "active");
     for (const sw of activeSwimmers) {
