@@ -19,6 +19,8 @@ import {
   sendManualSessionRemindersAction,
   sendTestReminderAction,
   sendTestWelcomeEmailAction,
+  sendTestPassSetupEmailAction,
+  sendAllSwimmersPassSetupEmailAction,
   sendTestAdminAlertAction,
 } from "@/actions/reminder-actions";
 import { formatTime, cn } from "@/lib/utils";
@@ -47,9 +49,12 @@ export function ReminderClient({
     "Don't forget your swim session tomorrow! Bring your goggles, towel, and water bottle."
   );
   const [isSending, setIsSending] = React.useState(false);
+  const [isBroadcastingPassGuide, setIsBroadcastingPassGuide] = React.useState(false);
   const [isTestSending, setIsTestSending] = React.useState(false);
   const [testEmailAddress, setTestEmailAddress] = React.useState("theekshanasudeepa4@gmail.com");
-  const [testTemplate, setTestTemplate] = React.useState<"reminder" | "welcome" | "admin-alert">("admin-alert");
+  const [testTemplate, setTestTemplate] = React.useState<
+    "pass-setup" | "reminder" | "welcome" | "admin-alert"
+  >("pass-setup");
 
   // Dynamically calculate eligible active swimmers with valid email and active consent
   const eligibleSwimmers = React.useMemo(() => {
@@ -100,6 +105,36 @@ export function ReminderClient({
     }
   }
 
+  async function handleBroadcastPassSetupGuide() {
+    if (eligibleSwimmers.length === 0) {
+      toast.error("No active swimmers with valid email addresses found.");
+      return;
+    }
+    if (
+      !confirm(
+        `Send the Swimmer Pass & Poolside GPS Check-In Guide email to all ${eligibleSwimmers.length} active squad swimmer(s)?`
+      )
+    ) {
+      return;
+    }
+
+    setIsBroadcastingPassGuide(true);
+    try {
+      const res = await sendAllSwimmersPassSetupEmailAction();
+      if (!res.success) {
+        toast.error(res.error || "Failed to send Pass & GPS Check-In Guide emails.");
+      } else {
+        toast.success(
+          `Pass & GPS Check-In Guide sent to ${res.sentCount}/${res.totalCount} squad swimmers!`
+        );
+      }
+    } catch {
+      toast.error("Failed to broadcast Pass & GPS Check-In Guide.");
+    } finally {
+      setIsBroadcastingPassGuide(false);
+    }
+  }
+
   async function handleSendTest() {
     if (!testEmailAddress || !testEmailAddress.includes("@")) {
       toast.error("Please enter a valid test email address.");
@@ -107,7 +142,14 @@ export function ReminderClient({
     }
     setIsTestSending(true);
     try {
-      if (testTemplate === "welcome") {
+      if (testTemplate === "pass-setup") {
+        const res = await sendTestPassSetupEmailAction(testEmailAddress);
+        if (res.error) {
+          toast.error(res.error);
+        } else {
+          toast.success(`Pass & GPS Check-In Guide test email sent to ${testEmailAddress}!`);
+        }
+      } else if (testTemplate === "welcome") {
         const res = await sendTestWelcomeEmailAction(testEmailAddress);
         if (res.error) {
           toast.error(res.error);
@@ -250,14 +292,53 @@ export function ReminderClient({
             </button>
           </div>
 
+          {/* Broadcast Pass & Poolside GPS Guide Section */}
+          <div className="pt-4 border-t border-border space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-bold text-foreground">
+                  Broadcast New Swimmer Pass &amp; GPS Check-In Guide
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Sends the responsive 3-step guide (4-digit PIN + 75m Pool Radar + 60m excuse cut-off) to all active swimmers.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleBroadcastPassSetupGuide}
+                disabled={isBroadcastingPassGuide}
+                className="px-3.5 py-2 rounded-xl bg-seafoam hover:opacity-90 text-ocean-950 font-extrabold text-xs flex items-center gap-1.5 shrink-0 shadow-sm transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>
+                  {isBroadcastingPassGuide
+                    ? "Sending to Squad..."
+                    : `Email Pass Guide to All (${eligibleCount})`}
+                </span>
+              </button>
+            </div>
+          </div>
+
           {/* Test Email Section */}
           <div className="pt-4 border-t border-border space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-aqua" />
                 <span>Send Live Test to Custom Email</span>
               </label>
-              <div className="flex items-center gap-1 text-[11px] bg-secondary/50 p-0.5 rounded-lg border border-border">
+              <div className="flex flex-wrap items-center gap-1 text-[11px] bg-secondary/50 p-0.5 rounded-lg border border-border">
+                <button
+                  type="button"
+                  onClick={() => setTestTemplate("pass-setup")}
+                  className={cn(
+                    "px-2 py-0.5 rounded-md font-semibold transition-all",
+                    testTemplate === "pass-setup"
+                      ? "bg-aqua text-ocean-950 shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Pass &amp; GPS Guide
+                </button>
                 <button
                   type="button"
                   onClick={() => setTestTemplate("admin-alert")}
@@ -315,6 +396,8 @@ export function ReminderClient({
                 <span>
                   {isTestSending
                     ? "Sending..."
+                    : testTemplate === "pass-setup"
+                    ? "Send Pass Guide"
                     : testTemplate === "admin-alert"
                     ? "Send Admin Alert"
                     : testTemplate === "welcome"
@@ -354,7 +437,40 @@ export function ReminderClient({
             </div>
 
             {/* Email Card Body */}
-            {testTemplate === "admin-alert" ? (
+            {testTemplate === "pass-setup" ? (
+              <div className="bg-white dark:bg-ocean-900 p-5 rounded-xl border border-[#D1EBF3] dark:border-ocean-800 space-y-3">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-aqua/15 text-aqua border border-aqua/30">
+                  📍 New: On-Location GPS Check-In &amp; 4-Digit PIN
+                </div>
+                <div className="text-base font-extrabold text-[#071B2B] dark:text-white">
+                  Your Swimmer Pass &amp; Poolside Check-In Guide 🏊
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Attendance can <strong>only be marked on location at the swimming pool</strong> (or by the coach) — there is no check-in from home.
+                </p>
+
+                <div className="p-3 rounded-lg bg-[#f0fdfa] dark:bg-ocean-950 border border-seafoam/40 text-xs space-y-2">
+                  <div className="font-extrabold text-[#0f766e] dark:text-seafoam uppercase text-[11px]">
+                    ⚡ How Your Swimmer Pass Works (3 Easy Steps)
+                  </div>
+                  <div className="text-muted-foreground">
+                    <strong>1. Set Your Private 4-Digit PIN:</strong> Select your name at <code>/portal</code> and create your 4-digit security PIN.
+                  </div>
+                  <div className="text-muted-foreground">
+                    <strong>2. Poolside GPS Radar Check-In:</strong> Within <strong>75m</strong> of the pool (from 30 mins before start), tap <strong>Turn On Radar</strong> &rarr; <strong>Mark Present</strong> &rarr; confirm your <strong>4-digit PIN</strong>.
+                  </div>
+                  <div className="text-muted-foreground">
+                    <strong>3. Can&apos;t Make It? Report Early:</strong> Report excused absences at least <strong>60 minutes before start</strong> so the coach is notified.
+                  </div>
+                </div>
+
+                <div className="pt-1 text-center">
+                  <span className="inline-block px-4 py-2 rounded-lg bg-aqua text-ocean-950 font-bold text-xs shadow-sm">
+                    Open My Swimmer Pass &amp; Set 4-Digit PIN 🏊 &rarr;
+                  </span>
+                </div>
+              </div>
+            ) : testTemplate === "admin-alert" ? (
               <div className="bg-white dark:bg-ocean-900 p-5 rounded-xl border border-[#D1EBF3] dark:border-ocean-800 space-y-3">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/30">
                   🔔 Admin New Swimmer Notification

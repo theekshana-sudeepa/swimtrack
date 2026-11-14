@@ -28,6 +28,7 @@ import {
   archiveSwimmerAction,
   restoreSwimmerAction,
 } from "@/actions/swimmer-actions";
+import { sendAllSwimmersPassSetupEmailAction } from "@/actions/reminder-actions";
 import { getInitials, cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -42,6 +43,30 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
   const [copiedLink, setCopiedLink] = React.useState(false);
   const [copiedMsg, setCopiedMsg] = React.useState(false);
   const [editingSwimmer, setEditingSwimmer] = React.useState<Swimmer | null>(null);
+  const [isSendingPassGuideAll, setIsSendingPassGuideAll] = React.useState(false);
+
+  async function handleEmailPassGuideToAll() {
+    if (
+      !confirm(
+        "Send the Swimmer Pass & Poolside GPS Check-In Guide email to all active swimmers with an email address?"
+      )
+    ) {
+      return;
+    }
+    setIsSendingPassGuideAll(true);
+    try {
+      const res = await sendAllSwimmersPassSetupEmailAction();
+      if (!res.success) {
+        toast.error(res.error || "Failed to send Pass & GPS Check-In Guide.");
+      } else {
+        toast.success(`Pass & GPS Check-In Guide sent to ${res.sentCount}/${res.totalCount} swimmers!`);
+      }
+    } catch {
+      toast.error("Failed to send Pass & GPS Check-In Guide.");
+    } finally {
+      setIsSendingPassGuideAll(false);
+    }
+  }
 
   React.useEffect(() => {
     setSwimmers(initialSwimmers);
@@ -139,7 +164,18 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={isSendingPassGuideAll}
+            onClick={handleEmailPassGuideToAll}
+            className="px-3.5 py-2 rounded-xl border border-aqua/40 bg-aqua/10 hover:bg-aqua/20 text-aqua text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            title="Email the 3-step Swimmer Pass & Poolside GPS Check-In guide to all active swimmers"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            <span>{isSendingPassGuideAll ? "Sending Guide..." : "Email Pass Guide to All"}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setShowInviteModal(true)}

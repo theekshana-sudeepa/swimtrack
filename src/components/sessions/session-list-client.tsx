@@ -36,6 +36,7 @@ import {
   deleteSessionAction,
 } from "@/actions/session-actions";
 import { formatTime, cn } from "@/lib/utils";
+import { DEFAULT_GEOFENCE_RADIUS_METERS } from "@/lib/geo-fence";
 import { toast } from "sonner";
 
 export function SessionListClient({
@@ -56,12 +57,12 @@ export function SessionListClient({
   const [sessionToDelete, setSessionToDelete] = React.useState<SwimSession | null>(null);
   const [isDeletingSession, setIsDeletingSession] = React.useState(false);
 
-  // Custom Map Location State for 30m geofencing
+  // Custom Map Location State for geofencing
   const [selectedGeo, setSelectedGeo] = React.useState<SelectedLocationData>({
     name: defaultPool || "Bandaranayake College Swimming Pool Complex, Gampaha",
     latitude: 7.0917,
     longitude: 79.9996,
-    radiusMeters: 30,
+    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
   });
   const [showMapPicker, setShowMapPicker] = React.useState(false);
 
@@ -535,7 +536,7 @@ export function SessionListClient({
                           name: "Bandaranayake College Swimming Pool Complex, Gampaha",
                           latitude: 7.0917,
                           longitude: 79.9996,
-                          radiusMeters: 30,
+                          radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
                         })
                       }
                       className={cn(
@@ -555,7 +556,7 @@ export function SessionListClient({
                           name: "Ranaviru Apparels Swimming Pool, Yakkala",
                           latitude: 7.0785,
                           longitude: 80.036,
-                          radiusMeters: 30,
+                          radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
                         })
                       }
                       className={cn(
@@ -767,7 +768,7 @@ export function SessionListClient({
                           name: "Bandaranayake College Swimming Pool Complex, Gampaha",
                           latitude: 7.0917,
                           longitude: 79.9996,
-                          radiusMeters: 30,
+                          radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
                         })
                       }
                       className={cn(
@@ -787,7 +788,7 @@ export function SessionListClient({
                           name: "Ranaviru Apparels Swimming Pool, Yakkala",
                           latitude: 7.0785,
                           longitude: 80.036,
-                          radiusMeters: 30,
+                          radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
                         })
                       }
                       className={cn(

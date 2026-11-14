@@ -117,3 +117,30 @@ export const swimmerPinRateLimiter = new SlidingWindowRateLimiter({
   lockoutMs: 10 * 60 * 1000,
 });
 
+// Swimmer PIN brute force across rotating IPs: cap failures per swimmer regardless of IP
+export const swimmerPinGlobalRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 30 * 60 * 1000,
+  maxAttempts: 15,
+  lockoutMs: 15 * 60 * 1000,
+});
+
+// GPS check-in attempts: Max 8 per 5 minutes per swimmer (stops scripted position probing)
+export const checkinAttemptRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 5 * 60 * 1000,
+  maxAttempts: 8,
+  lockoutMs: 5 * 60 * 1000,
+});
+
+// Check-in challenge requests: Max 12 per 5 minutes per swimmer
+export const checkinChallengeRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 5 * 60 * 1000,
+  maxAttempts: 12,
+  lockoutMs: 5 * 60 * 1000,
+});
+
+// Excuse submissions: Max 6 per 10 minutes per swimmer
+export const excuseRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  maxAttempts: 6,
+  lockoutMs: 10 * 60 * 1000,
+});

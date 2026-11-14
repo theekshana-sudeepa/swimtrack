@@ -151,3 +151,16 @@ export function extractClientIp(headers: Headers): string {
   return "127.0.0.1";
 }
 
+
+/**
+ * Generates an unguessable swimmer pass token (192 bits of entropy).
+ * Never derive tokens from swimmer ids, names or emails - those are not secrets.
+ */
+export function generateSwimmerToken(): string {
+  return `st_${crypto.randomBytes(24).toString("base64url")}`;
+}
+
+/** True only for tokens minted by generateSwimmerToken(). */
+export function isStrongSwimmerToken(token: unknown): boolean {
+  return typeof token === "string" && /^st_[A-Za-z0-9_-]{32}$/.test(token);
+}

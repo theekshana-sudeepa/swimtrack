@@ -29,7 +29,15 @@ export async function updateAttendanceStatusAction(
     );
 
     // Persist directly to Supabase Postgres database & audit trail
-    await SupabaseDB.upsertAttendance(result.record, admin.id, cleanNotes);
+    const persisted = await SupabaseDB.upsertAttendance(
+      result.record,
+      admin.id,
+      cleanNotes,
+      result.auditLog.old_status
+    );
+    if (!persisted) {
+      return { success: false, error: "Saved locally but the database update failed. Please retry." };
+    }
 
     revalidatePath("/attendance");
     revalidatePath(`/sessions/${sessionId}`);
@@ -52,11 +60,15 @@ export async function markAllPresentAction(sessionId: string) {
     const admin = await requireAdminSession();
     await DataStore.syncFromSupabase();
 
-    const count = DataStore.markAllPresent(sessionId, admin.id);
+    // Only UNMARKED swimmers are changed - excused/late/absent/GPS-verified are left untouched
+    const changed = DataStore.markAllPresent(sessionId, admin.id);
+    const count = changed.length;
 
-    // Batch sync updated records to Supabase in a single transaction
-    const records = DataStore.getSessionAttendance(sessionId).filter((r) => r.status === "present");
-    await SupabaseDB.bulkUpsertAttendance(records, admin.id, "Bulk marked present");
+    // Batch sync ONLY the changed records to Supabase in a single transaction
+    const persisted = await SupabaseDB.bulkUpsertAttendance(changed, admin.id, "Bulk marked present");
+    if (!persisted) {
+      return { success: false, error: "Database update failed. Please retry." };
+    }
 
     revalidatePath("/attendance");
     revalidatePath(`/sessions/${sessionId}`);
@@ -77,11 +89,18 @@ export async function markRemainingAbsentAction(sessionId: string) {
     const admin = await requireAdminSession();
     await DataStore.syncFromSupabase();
 
-    const count = DataStore.markRemainingAbsent(sessionId, admin.id);
+    const changed = DataStore.markRemainingAbsent(sessionId, admin.id);
+    const count = changed.length;
 
-    // Batch sync updated records to Supabase in a single transaction
-    const records = DataStore.getSessionAttendance(sessionId).filter((r) => r.status === "absent");
-    await SupabaseDB.bulkUpsertAttendance(records, admin.id, "Bulk marked absent for remaining un-marked");
+    // Batch sync ONLY the changed records to Supabase in a single transaction
+    const persisted = await SupabaseDB.bulkUpsertAttendance(
+      changed,
+      admin.id,
+      "Bulk marked absent for remaining un-marked"
+    );
+    if (!persisted) {
+      return { success: false, error: "Database update failed. Please retry." };
+    }
 
     revalidatePath("/attendance");
     revalidatePath(`/sessions/${sessionId}`);

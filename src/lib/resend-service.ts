@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import * as React from "react";
 import { Swimmer, SwimSession } from "@/types/database";
 import { DataStore } from "./data-store";
+import { ensureStrongSwimmerToken } from "./swimmer-token-service";
 import UpcomingSessionEmail from "@/emails/upcoming-session";
 import WelcomeSwimmerEmail from "@/emails/welcome-swimmer";
 import SwimmerPassSetupEmail from "@/emails/swimmer-pass-setup";
@@ -197,7 +198,11 @@ export async function sendWelcomeEmail({
   const resend = getResendClient();
   const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const swimmerToken = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
+  // Links must carry an unguessable token (never the swimmer id / a derived value)
+  const swimmerToken =
+    (await ensureStrongSwimmerToken(swimmer.id)) ||
+    swimmer.reminder_preferences?.opt_out_token ||
+    "";
   const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmerToken}`;
   const portalUrl = `${appUrl}/portal/${swimmerToken}`;
 
@@ -299,7 +304,11 @@ export async function sendSwimmerPassSetupEmail({
   const resend = getResendClient();
   const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://swim-track-wine.vercel.app";
-  const swimmerToken = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
+  // Links must carry an unguessable token (never the swimmer id / a derived value)
+  const swimmerToken =
+    (await ensureStrongSwimmerToken(swimmer.id)) ||
+    swimmer.reminder_preferences?.opt_out_token ||
+    "";
   const optOutUrl = `${appUrl}/reminders/opt-out?token=${swimmerToken}`;
   const portalUrl = `${appUrl}/portal`;
 
@@ -511,5 +520,73 @@ export async function sendAdminNewSwimmerAlert({
       error_message: errorMsg,
     });
     return { success: false, error: errorMsg };
+  }
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Tells the coach when a swimmer reports (or withdraws) an excused absence, so lanes and
+ * coaching plans can adapt. Best-effort: callers must not fail the swimmer's action on error.
+ */
+export async function sendCoachExcuseNotice({
+  swimmer,
+  session,
+  action,
+  reason,
+}: {
+  swimmer: Swimmer;
+  session: SwimSession;
+  action: "declare" | "clear";
+  reason?: string;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const settings = DataStore.getAppSettings();
+  const adminEmail = (
+    (settings?.general?.value?.admin_email as string | undefined)?.trim() ||
+    process.env.ADMIN_EMAIL?.trim() ||
+    ""
+  );
+  if (!adminEmail || !adminEmail.includes("@")) {
+    return { success: false, error: "No valid admin email configured." };
+  }
+
+  const resend = getResendClient();
+  if (!resend) {
+    return { success: false, error: "Email provider not configured." };
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const name = escapeHtml(swimmer.nickname ? `${swimmer.full_name} ("${swimmer.nickname}")` : swimmer.full_name);
+  const title = escapeHtml(session.title);
+  const when = escapeHtml(`${session.date} ${session.start_time.slice(0, 5)}`);
+  const headline =
+    action === "declare" ? `${name} can't make it` : `${name} withdrew their excuse`;
+  const detail =
+    action === "declare"
+      ? `Reason: ${escapeHtml(reason || "Not given")}`
+      : "They plan to attend again.";
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>",
+      to: [adminEmail],
+      subject: `${action === "declare" ? "🩹 Excused" : "↩️ Excuse withdrawn"}: ${swimmer.full_name} - ${session.title}`,
+      html: `<div style="font-family:system-ui,sans-serif;max-width:480px">
+        <h2 style="margin:0 0 8px">${headline}</h2>
+        <p style="margin:0 0 4px"><strong>${title}</strong> &middot; ${when}</p>
+        <p style="margin:0 0 16px">${detail}</p>
+        <a href="${appUrl}/attendance?session=${encodeURIComponent(session.id)}">Open the register</a>
+      </div>`,
+    });
+    if (error) return { success: false, error: error.message };
+    return { success: true, messageId: data?.id };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed to send notice." };
   }
 }

@@ -11,7 +11,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function SwimmerPortalEntryPage() {
-  await DataStore.syncFromSupabase();
+  await DataStore.syncFromSupabase({ maxAgeMs: 10_000 });
 
   // Read device persistent cookie
   const cookieStore = await cookies();

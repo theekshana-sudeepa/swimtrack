@@ -48,6 +48,12 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
   const [adminEmail, setAdminEmail] = React.useState(
     (generalVal?.admin_email as string) || "theekshanasudeepa4@gmail.com"
   );
+  const [lateThreshold, setLateThreshold] = React.useState(
+    String(generalVal?.late_threshold_minutes ?? "10")
+  );
+  const [excuseCutoff, setExcuseCutoff] = React.useState(
+    String(generalVal?.excuse_cutoff_minutes ?? "60")
+  );
   const [timezone] = React.useState("Asia/Colombo (UTC+05:30)");
   const [autoReminders, setAutoReminders] = React.useState(
     reminderVal?.auto_reminders_enabled !== false
@@ -63,6 +69,8 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
       if (g.default_pool !== undefined) setDefaultPool(g.default_pool as string);
       if (g.default_duration_minutes) setDuration(String(g.default_duration_minutes));
       if (g.admin_email) setAdminEmail(g.admin_email as string);
+      if (g.late_threshold_minutes !== undefined) setLateThreshold(String(g.late_threshold_minutes));
+      if (g.excuse_cutoff_minutes !== undefined) setExcuseCutoff(String(g.excuse_cutoff_minutes));
     }
   }, [initialSettings]);
 
@@ -253,6 +261,42 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
               value={timezone}
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/20 text-sm text-muted-foreground cursor-not-allowed"
             />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-foreground mb-1">
+              Late After (minutes past start)
+            </label>
+            <input
+              type="number"
+              name="late_threshold_minutes"
+              min={0}
+              max={120}
+              value={lateThreshold}
+              onChange={(e) => setLateThreshold(e.target.value)}
+              className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              A GPS check-in later than this counts as Late instead of Present.
+            </p>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-foreground mb-1">
+              Excuse Cut-off (minutes before start)
+            </label>
+            <input
+              type="number"
+              name="excuse_cutoff_minutes"
+              min={0}
+              max={1440}
+              value={excuseCutoff}
+              onChange={(e) => setExcuseCutoff(e.target.value)}
+              className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Swimmers can self-report an excuse until this long before practice. You get an email each time.
+            </p>
           </div>
 
           <div className="sm:col-span-2">

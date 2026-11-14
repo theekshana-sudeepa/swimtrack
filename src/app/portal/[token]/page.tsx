@@ -1,6 +1,9 @@
 import * as React from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { SWIMMER_COOKIE_NAME } from "@/lib/auth";
+import { timingSafeMatch } from "@/lib/security";
 import { DataStore } from "@/lib/data-store";
 import { SwimmerPortalClient } from "@/components/portal/swimmer-portal-client";
 import { Waves, ArrowLeft, Search } from "lucide-react";
@@ -13,7 +16,7 @@ export default async function SwimmerPortalPage({
 }: {
   params: Promise<{ token: string }>;
 }) {
-  await DataStore.syncFromSupabase();
+  await DataStore.syncFromSupabase({ maxAgeMs: 10_000 });
   const { token } = await params;
   const swimmer = DataStore.getSwimmerByToken(token);
 
@@ -53,6 +56,12 @@ export default async function SwimmerPortalPage({
         </footer>
       </div>
     );
+  }
+
+  // A pass link alone is not enough: the visitor must have signed in with their PIN on this device.
+  const cookieToken = (await cookies()).get(SWIMMER_COOKIE_NAME)?.value;
+  if (!cookieToken || !timingSafeMatch(cookieToken, token.trim())) {
+    redirect("/portal");
   }
 
   const nextSession = DataStore.getNextUpcomingSession();

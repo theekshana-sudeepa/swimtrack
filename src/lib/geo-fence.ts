@@ -1,5 +1,14 @@
 import { SwimSession, AttendanceStatus } from "@/types/database";
-import { getCurrentColomboTime, parseTimeToMinutes } from "./attendance-calculator";
+import { getCurrentColomboTime, parseTimeToMinutes, formatLateNote } from "./attendance-calculator";
+
+/** Default geofence radius. Phone GPS beside a pool is typically +/-10-30 m, so 30 m was unusable. */
+export const DEFAULT_GEOFENCE_RADIUS_METERS = 75;
+/** Readings coarser than this (cell tower / wifi estimates) are rejected. */
+export const MAX_GPS_ACCURACY_METERS = 50;
+/** A GPS reading older than this is considered stale (replay protection). */
+export const MAX_POSITION_AGE_MS = 90_000;
+/** Default minutes after start before a GPS check-in counts as "late" (coach-configurable). */
+export const DEFAULT_LATE_THRESHOLD_MINUTES = 10;
 
 export interface VenueLocation {
   name: string;
@@ -10,40 +19,41 @@ export interface VenueLocation {
 
 /**
  * Registry of known aquatic centers & swimming pools in Sri Lanka.
- * Default radius is 85-100m to comfortably encompass the pool deck,
- * spectator stands, and changing facilities while excluding neighboring houses/streets.
+ * Default radius (DEFAULT_GEOFENCE_RADIUS_METERS) comfortably covers the pool deck,
+ * spectator stands and changing facilities while excluding neighbouring streets.
  */
 export const KNOWN_VENUES: Record<string, VenueLocation> = {
   bandaranayake: {
     name: "Bandaranayake College Swimming Pool Complex, Gampaha",
     latitude: 7.0917,
     longitude: 79.9996,
-    radiusMeters: 30,
+    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
   },
   ranaviru_apparels: {
     name: "Ranaviru Apparels Swimming Pool, Yakkala",
     latitude: 7.0785,
     longitude: 80.036,
-    radiusMeters: 30,
+    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
   },
 };
 
 /**
- * Finds the venue coordinates for a session based on session attributes or location string.
+ * STRICT venue resolver: returns null when the session has no explicit coordinates and its
+ * location text matches no known venue. Used for anything security-relevant (check-in) so a
+ * swimmer can never be verified against the wrong pool.
  */
-export function getSessionVenueCoordinates(session: SwimSession): VenueLocation {
-  // If session has explicit coordinates, use those
-  if (session.latitude && session.longitude) {
+export function resolveSessionVenue(session: SwimSession): VenueLocation | null {
+  if (session.latitude != null && session.longitude != null) {
     return {
       name: session.location,
       latitude: session.latitude,
       longitude: session.longitude,
-      radiusMeters: session.geofence_radius || 30,
+      radiusMeters: session.geofence_radius || DEFAULT_GEOFENCE_RADIUS_METERS,
     };
   }
 
-  // Otherwise, match against known venue strings
-  const loc = (session.location || "").toLowerCase();
+  const loc = (session.location || "").toLowerCase().trim();
+  if (!loc) return null;
   for (const venue of Object.values(KNOWN_VENUES)) {
     const venueLower = venue.name.toLowerCase();
     if (
@@ -56,9 +66,15 @@ export function getSessionVenueCoordinates(session: SwimSession): VenueLocation 
       return venue;
     }
   }
+  return null;
+}
 
-  // Fallback to Bandaranayake College Swimming Pool Complex if no match
-  return KNOWN_VENUES.bandaranayake;
+/**
+ * Display-only helper (map preview, radar UI). Falls back to the default pool when the venue is
+ * unknown. NEVER use this for validating a check-in - use resolveSessionVenue().
+ */
+export function getSessionVenueCoordinates(session: SwimSession): VenueLocation {
+  return resolveSessionVenue(session) ?? KNOWN_VENUES.bandaranayake;
 }
 
 /**
@@ -92,7 +108,10 @@ export interface GeofenceValidationResult {
   status: AttendanceStatus;
   isLate: boolean;
   minutesLate: number;
+  /** Audit-trail reason (machine-ish, may be extended with IP etc.). */
   reason?: string;
+  /** Human note stored on the attendance row. Late notes use the coach-editor format. */
+  note?: string;
   error?: string;
 }
 
@@ -101,7 +120,7 @@ export interface GeofenceValidationResult {
  * 1. Checks if the session is active today.
  * 2. Checks if current Colombo time is within the allowable session check-in window:
  *    [session.start_time - 30 mins, session.end_time + 15 mins].
- * 3. Enforces GPS accuracy threshold (rejects accuracy > 45m).
+ * 3. Enforces GPS accuracy threshold (rejects accuracy > MAX_GPS_ACCURACY_METERS).
  * 4. Checks timestamp freshness to prevent replay attacks (< 90 seconds old).
  * 5. Re-computes Haversine distance on server against venue coordinates.
  * 6. Determines 'present' vs 'late' (if arrival is > 10 mins past session start).
@@ -113,9 +132,44 @@ export function validateGeofenceCheckin(params: {
   clientTimestamp: number;
   session: SwimSession;
   bypassTimeWindowForDev?: boolean;
+  lateThresholdMinutes?: number;
 }): GeofenceValidationResult {
   const { userLat, userLng, accuracy, clientTimestamp, session, bypassTimeWindowForDev } = params;
-  const venue = getSessionVenueCoordinates(session);
+  const lateThreshold = Number.isFinite(params.lateThresholdMinutes)
+    ? Math.max(0, params.lateThresholdMinutes as number)
+    : DEFAULT_LATE_THRESHOLD_MINUTES;
+  const venue = resolveSessionVenue(session);
+
+  if (!venue) {
+    return {
+      isValid: false,
+      distanceMeters: 0,
+      radiusMeters: 0,
+      status: "not_marked",
+      isLate: false,
+      minutesLate: 0,
+      error:
+        "This session has no verified pool location, so GPS check-in is unavailable. Please ask the coach to mark your attendance.",
+    };
+  }
+
+  // 0. Reject malformed / non-finite input outright
+  if (
+    ![userLat, userLng, accuracy, clientTimestamp].every(Number.isFinite) ||
+    Math.abs(userLat) > 90 ||
+    Math.abs(userLng) > 180 ||
+    accuracy < 0
+  ) {
+    return {
+      isValid: false,
+      distanceMeters: 0,
+      radiusMeters: venue.radiusMeters,
+      status: "not_marked",
+      isLate: false,
+      minutesLate: 0,
+      error: "Invalid location reading. Please refresh your GPS and try again.",
+    };
+  }
 
   // 1. Calculate distance on server
   const distanceMeters = calculateHaversineDistance(
@@ -126,8 +180,8 @@ export function validateGeofenceCheckin(params: {
   );
 
   // 2. Accuracy check (anti-coarse / anti-IP spoofing)
-  // High quality GPS is typically < 25m. Reject anything coarser than 45m.
-  if (accuracy > 45) {
+  // High quality GPS is typically < 25m. Reject anything coarser than MAX_GPS_ACCURACY_METERS.
+  if (accuracy > MAX_GPS_ACCURACY_METERS) {
     return {
       isValid: false,
       distanceMeters,
@@ -142,7 +196,7 @@ export function validateGeofenceCheckin(params: {
   // 3. Freshness check (prevents replay of previously captured coordinates)
   const nowMs = Date.now();
   const timeDiffSec = Math.abs(nowMs - clientTimestamp) / 1000;
-  if (!bypassTimeWindowForDev && timeDiffSec > 90) {
+  if (!bypassTimeWindowForDev && timeDiffSec * 1000 > MAX_POSITION_AGE_MS) {
     return {
       isValid: false,
       distanceMeters,
@@ -224,12 +278,17 @@ export function validateGeofenceCheckin(params: {
   // 6. Present vs Late Determination
   const sessionStartMin = parseTimeToMinutes(session.start_time);
   const minutesLate = Math.max(0, colombo.totalMinutes - sessionStartMin);
-  const isLate = minutesLate > 10;
+  const isLate = minutesLate > lateThreshold;
   const status: AttendanceStatus = isLate ? "late" : "present";
 
   const reason = isLate
     ? `Self check-in via Geofence (Late by ${minutesLate}m at ${colombo.time12}, ${distanceMeters}m from pool center)`
     : `Self check-in via Geofence (On time at ${colombo.time12}, ${distanceMeters}m from pool center)`;
+
+  // Late notes use the exact format the coach's late editor parses ("Arrived at … (Xm late)")
+  const note = isLate
+    ? formatLateNote(colombo.time12, minutesLate, `GPS check-in, ${distanceMeters}m from pool`)
+    : `Checked in at ${colombo.time12} via GPS (${distanceMeters}m from pool)`;
 
   return {
     isValid: true,
@@ -239,5 +298,6 @@ export function validateGeofenceCheckin(params: {
     isLate,
     minutesLate,
     reason,
+    note,
   };
 }

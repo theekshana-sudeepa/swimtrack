@@ -19,11 +19,15 @@ import {
 import { SwimSession, AttendanceRecord } from "@/types/database";
 import {
   KNOWN_VENUES,
+  MAX_GPS_ACCURACY_METERS,
   getSessionVenueCoordinates,
   calculateHaversineDistance,
   VenueLocation,
 } from "@/lib/geo-fence";
-import { selfCheckInWithGeofenceAction } from "@/actions/portal-actions";
+import {
+  selfCheckInWithGeofenceAction,
+  issueCheckinChallengeAction,
+} from "@/actions/portal-actions";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { cn, formatTime } from "@/lib/utils";
@@ -79,36 +83,15 @@ export function PoolRadarCheckin({
   const [distanceMeters, setDistanceMeters] = React.useState<number | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [isSimulated, setIsSimulated] = React.useState(false);
   const [showTechInfo, setShowTechInfo] = React.useState(false);
+  const [showPinPrompt, setShowPinPrompt] = React.useState(false);
+  const [pinInput, setPinInput] = React.useState("");
 
   // Watch Position Handler
   const watchIdRef = React.useRef<number | null>(null);
 
   const startGpsWatch = React.useCallback(
-    (simulated = false) => {
-      if (simulated) {
-        // Place user 25 meters inside the pool venue
-        const simLat = venue.latitude + 0.00015;
-        const simLng = venue.longitude + 0.00015;
-        const dist = calculateHaversineDistance(
-          simLat,
-          simLng,
-          venue.latitude,
-          venue.longitude
-        );
-        setCoords({
-          latitude: simLat,
-          longitude: simLng,
-          accuracy: 8,
-          timestamp: Date.now(),
-        });
-        setDistanceMeters(dist);
-        setGpsState("ready");
-        setErrorMessage(null);
-        return;
-      }
-
+    () => {
       if (!("geolocation" in navigator)) {
         setGpsState("unavailable");
         setErrorMessage("Geolocation is not supported by your browser.");
@@ -177,9 +160,32 @@ export function PoolRadarCheckin({
   // Compute geofence status
   const isInsideGeofence =
     distanceMeters !== null && distanceMeters <= venue.radiusMeters;
-  const isAccuracyGood = coords !== null && coords.accuracy <= 45;
+  const isAccuracyGood = coords !== null && coords.accuracy <= MAX_GPS_ACCURACY_METERS;
+  const isPinSatisfied = !showPinPrompt || /^\d{4}$/.test(pinInput.trim());
   const isButtonEnabled =
-    isInsideGeofence && isAccuracyGood && !isAlreadyCheckedIn && !isSubmitting;
+    isInsideGeofence &&
+    isAccuracyGood &&
+    !isAlreadyCheckedIn &&
+    !isSubmitting &&
+    isPinSatisfied;
+
+  /**
+   * watchPosition only fires when the phone moves, so a swimmer standing still on the deck can
+   * hold a reading that is minutes old. Always take a brand-new fix at the moment of check-in.
+   */
+  function getFreshPosition(): Promise<GeolocationPosition> {
+    return new Promise((resolve, reject) => {
+      if (!("geolocation" in navigator)) {
+        reject(new Error("Geolocation is not supported by your browser."));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 15000,
+      });
+    });
+  }
 
   // Handle Check-in Submission
   async function handleCheckIn() {
@@ -190,20 +196,72 @@ export function PoolRadarCheckin({
 
     setIsSubmitting(true);
     try {
+      // 1. Brand-new GPS fix (never reuse a cached/watched reading)
+      let fresh: GeolocationPosition;
+      try {
+        fresh = await getFreshPosition();
+      } catch (geoErr) {
+        const code = (geoErr as GeolocationPositionError)?.code;
+        toast.error(
+          code === 1
+            ? "Location permission was denied. Enable it to check in."
+            : "Could not get a fresh GPS fix. Move to open sky and try again."
+        );
+        return;
+      }
+
+      const { latitude, longitude, accuracy } = fresh.coords;
+      const dist = calculateHaversineDistance(latitude, longitude, venue.latitude, venue.longitude);
+      setCoords({ latitude, longitude, accuracy, timestamp: fresh.timestamp || Date.now() });
+      setDistanceMeters(dist);
+
+      if (accuracy > MAX_GPS_ACCURACY_METERS) {
+        toast.error(
+          `GPS accuracy is too low (±${Math.round(accuracy)}m). Step outside or closer to the open pool deck.`
+        );
+        return;
+      }
+      if (dist > venue.radiusMeters) {
+        toast.error(`You are ${dist}m from the pool. Get within ${venue.radiusMeters}m to check in.`);
+        return;
+      }
+
+      // 2. Server-issued, single-use challenge
+      const challengeRes = await issueCheckinChallengeAction(token, session.id);
+      if (!challengeRes.success) {
+        if (challengeRes.needsLogin) {
+          toast.error("Please sign in with your PIN again to check in.");
+          window.location.href = "/portal";
+          return;
+        }
+        toast.error(challengeRes.error);
+        return;
+      }
+
+      if (challengeRes.requiresPin && !/^\d{4}$/.test(pinInput.trim())) {
+        setShowPinPrompt(true);
+        toast.info("Enter your 4-digit PIN below to confirm your check-in.");
+        return;
+      }
+
+      // 3. Submit. The server re-verifies everything; position age is clock-skew independent.
       const res = await selfCheckInWithGeofenceAction(
         token,
         session.id,
         {
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          accuracy: coords.accuracy,
-          timestamp: coords.timestamp,
+          latitude,
+          longitude,
+          accuracy,
+          positionAgeMs: Math.max(0, Date.now() - (fresh.timestamp || Date.now())),
         },
-        isSimulated // dev bypass flag if simulated
+        challengeRes.challenge,
+        pinInput.trim() || undefined
       );
 
       if (res.success && res.record) {
         setAttendanceRecord(res.record);
+        setShowPinPrompt(false);
+        setPinInput("");
         confetti({
           particleCount: 100,
           spread: 80,
@@ -225,6 +283,13 @@ export function PoolRadarCheckin({
         if (onCheckedIn) {
           onCheckedIn(res.record);
         }
+      } else if ((res as { needsLogin?: boolean }).needsLogin) {
+        toast.error("Please sign in with your PIN again to check in.");
+        window.location.href = "/portal";
+      } else if ((res as { needsPin?: boolean }).needsPin) {
+        setShowPinPrompt(true);
+        setPinInput("");
+        toast.error(res.error || "Please enter your 4-digit PIN to check in.");
       } else {
         toast.error(res.error || "Check-in failed. Please try again.");
       }
@@ -311,7 +376,7 @@ export function PoolRadarCheckin({
           </p>
           <ul className="list-disc list-inside space-y-1 text-muted-foreground/90 pl-1">
             <li><strong>Server-side Haversine Formula:</strong> The distance is recalculated on the backend server; client GPS coordinates cannot be faked via simple browser edits.</li>
-            <li><strong>Precision GPS Only:</strong> Coarse tower signals or mock locations with &gt;45m error are rejected.</li>
+            <li><strong>Precision GPS Only:</strong> Coarse tower signals or mock locations with &gt;{MAX_GPS_ACCURACY_METERS}m error are rejected.</li>
             <li><strong>Server Clock:</strong> On-time vs late status is strictly determined by server time (Asia/Colombo), ignoring your device clock.</li>
           </ul>
         </div>
@@ -437,7 +502,7 @@ export function PoolRadarCheckin({
             {gpsState === "prompt" ? (
               <button
                 type="button"
-                onClick={() => startGpsWatch(false)}
+                onClick={() => startGpsWatch()}
                 className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-secondary hover:bg-secondary/80 border border-aqua/30 text-aqua font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
               >
                 <Compass className="w-4 h-4 text-aqua animate-spin-slow" />
@@ -446,7 +511,7 @@ export function PoolRadarCheckin({
             ) : gpsState === "ready" ? (
               <button
                 type="button"
-                onClick={() => startGpsWatch(isSimulated)}
+                onClick={() => startGpsWatch()}
                 className="w-full sm:w-auto px-3 py-1.5 rounded-xl bg-secondary/60 hover:bg-secondary border border-border text-muted-foreground hover:text-foreground text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors self-start sm:self-center"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -460,6 +525,29 @@ export function PoolRadarCheckin({
             <div className="p-3 rounded-xl bg-coral/10 border border-coral/30 text-coral text-xs flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {/* 4-Digit PIN Confirmation (Anti-Buddy-Checkin) */}
+          {showPinPrompt && !isAlreadyCheckedIn && (
+            <div className="p-3.5 rounded-2xl border border-aqua/40 bg-ocean-900/50 space-y-2">
+              <label className="block text-xs font-bold text-foreground">
+                Confirm your 4-digit PIN to complete check-in
+              </label>
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={4}
+                autoFocus
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                placeholder="••••"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-card text-center tracking-[0.5em] font-black text-base text-foreground focus:outline-none focus:ring-2 focus:ring-aqua"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Protects your pass against buddy check-ins. Each phone can only check in one swimmer per session.
+              </p>
             </div>
           )}
 

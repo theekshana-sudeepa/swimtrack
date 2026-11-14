@@ -336,7 +336,19 @@ export function AttendanceClient({
     setAttendance((prev) =>
       prev.map((item) =>
         item.swimmer_id === swimmerId
-          ? { ...item, status: newStatus, notes: notes !== undefined ? notes : item.notes }
+          ? {
+              ...item,
+              status: newStatus,
+              notes: notes !== undefined ? notes : item.notes,
+              // A coach changing the status replaces any earlier GPS check-in evidence
+              ...(newStatus !== oldStatus
+                ? {
+                    checkin_method: "coach_manual" as const,
+                    checkin_distance: null,
+                    checkin_accuracy: null,
+                  }
+                : {}),
+            }
           : item
       )
     );
@@ -357,7 +369,7 @@ export function AttendanceClient({
       setAttendance((prev) =>
         prev.map((item) =>
           item.swimmer_id === swimmerId
-            ? { ...item, status: oldStatus }
+            ? previous
             : item
         )
       );
@@ -380,25 +392,40 @@ export function AttendanceClient({
     toast.info("Reverted last attendance change");
   }
 
-  // Bulk: Mark All Present
+  // Bulk: Mark All Present (only UNMARKED swimmers - never overwrites excused/late/absent/GPS check-ins)
   async function handleMarkAllPresent() {
-    const count = attendance.filter((a) => a.status !== "present").length;
-    if (count === 0) {
-      toast.info("All swimmers are already marked present.");
+    if (notMarkedCount === 0) {
+      toast.info("No unmarked swimmers. Excused, late, absent and GPS check-ins were left as they are.");
       return;
     }
 
+    const snapshot = attendance;
     setAttendance((prev) =>
-      prev.map((item) => ({ ...item, status: "present" }))
+      prev.map((item) =>
+        item.status === "not_marked"
+          ? {
+              ...item,
+              status: "present",
+              checkin_method: "bulk" as const,
+              checkin_distance: null,
+              checkin_accuracy: null,
+            }
+          : item
+      )
     );
 
     try {
-      await markAllPresentAction(session.id);
-      toast.success(`Marked all ${totalCount} swimmers as present.`);
+      const res = await markAllPresentAction(session.id);
+      if (!res.success) throw new Error((res as { error?: string }).error || "Bulk update failed");
+      toast.success(
+        `Marked ${res.count ?? notMarkedCount} unmarked swimmer(s) present. Everyone else was left untouched.`
+      );
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.85 } });
-    } catch {
       router.refresh();
-      toast.error("Failed to bulk update attendance.");
+    } catch (err) {
+      setAttendance(snapshot);
+      router.refresh();
+      toast.error(err instanceof Error ? `${err.message}. Rolled back.` : "Failed to bulk update attendance.");
     }
   }
 
@@ -413,18 +440,30 @@ export function AttendanceClient({
       return;
     }
 
+    const snapshot = attendance;
     setAttendance((prev) =>
       prev.map((item) =>
-        item.status === "not_marked" ? { ...item, status: "absent" } : item
+        item.status === "not_marked"
+          ? {
+              ...item,
+              status: "absent",
+              checkin_method: "bulk" as const,
+              checkin_distance: null,
+              checkin_accuracy: null,
+            }
+          : item
       )
     );
 
     try {
-      await markRemainingAbsentAction(session.id);
-      toast.success(`Marked ${notMarkedCount} remaining swimmers as absent.`);
-    } catch {
+      const res = await markRemainingAbsentAction(session.id);
+      if (!res.success) throw new Error((res as { error?: string }).error || "Bulk update failed");
+      toast.success(`Marked ${res.count ?? notMarkedCount} remaining swimmers as absent.`);
       router.refresh();
-      toast.error("Failed to mark remaining swimmers as absent.");
+    } catch (err) {
+      setAttendance(snapshot);
+      router.refresh();
+      toast.error(err instanceof Error ? `${err.message}. Rolled back.` : "Failed to mark remaining swimmers as absent.");
     }
   }
 
@@ -909,7 +948,7 @@ export function AttendanceClient({
             className="px-3 py-1.5 rounded-xl border border-seafoam/30 bg-seafoam/10 hover:bg-seafoam/20 text-seafoam text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95"
           >
             <CheckCheck className="w-3.5 h-3.5" />
-            <span>Mark All Present</span>
+            <span>Mark Unmarked Present</span>
           </button>
 
           <button
@@ -1031,21 +1070,33 @@ export function AttendanceClient({
                         >
                           <ShieldAlert className="w-3 h-3 text-sky-400" />
                           <span>
+                            {record.notes?.startsWith("RSVP:") && "Self-reported · "}
                             {record.notes
-                              ? record.notes.replace(/^Excused:\s*/i, "")
+                              ? record.notes.replace(/^(Excused:|RSVP:\s*Excused\s*-)\s*/i, "")
                               : "Excused"}
                           </span>
                         </button>
                       )}
-                      {(record.checkin_method === "geofence_self" || record.notes?.includes("Geofence")) && (
+                      {record.checkin_method === "geofence_self" ? (
                         <span
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-aqua/10 text-aqua border border-aqua/30 text-[10px] font-extrabold"
-                          title={record.notes || "Self Check-in via Geofence"}
+                          title={record.notes || "Self check-in via GPS geofence"}
                         >
                           <MapPin className="w-3 h-3 text-aqua" />
-                          <span>Self Geofence</span>
+                          <span>
+                            GPS verified
+                            {record.checkin_distance != null && ` · ${Math.round(record.checkin_distance)}m`}
+                            {record.checkin_accuracy != null && ` ±${Math.round(record.checkin_accuracy)}m`}
+                          </span>
                         </span>
-                      )}
+                      ) : record.checkin_method === "bulk" && record.status !== "not_marked" ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-secondary text-muted-foreground border border-border text-[10px] font-bold"
+                          title="Marked by the coach with a bulk action - not GPS verified"
+                        >
+                          Bulk · coach
+                        </span>
+                      ) : null}
                       {record.notes && record.status !== "late" && record.status !== "excused" && (
                         <span className="text-aqua italic truncate max-w-[180px]">
                           &bull; &ldquo;{record.notes}&rdquo;

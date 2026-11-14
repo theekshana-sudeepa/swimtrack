@@ -6,6 +6,14 @@ import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import { sanitizeString } from "@/lib/security";
+import { DEFAULT_GEOFENCE_RADIUS_METERS } from "@/lib/geo-fence";
+
+/** Parses and clamps a coach-supplied geofence radius to a sane 25-250 m range. */
+function clampGeofenceRadius(raw: string | null | undefined): number {
+  const n = raw ? parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(n)) return DEFAULT_GEOFENCE_RADIUS_METERS;
+  return Math.min(250, Math.max(25, n));
+}
 
 export async function createSessionAction(formData: FormData) {
   await requireAdminSession();
@@ -26,7 +34,7 @@ export async function createSessionAction(formData: FormData) {
   const rawRadius = formData.get("geofence_radius") as string;
   const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
   const longitude = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
-  const geofence_radius = rawRadius && !isNaN(parseInt(rawRadius, 10)) ? parseInt(rawRadius, 10) : 30;
+  const geofence_radius = clampGeofenceRadius(rawRadius);
 
   const session = DataStore.createSession({
     title,
@@ -72,7 +80,7 @@ export async function createSeriesAction(formData: FormData) {
   const rawRadius = formData.get("geofence_radius") as string;
   const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
   const longitude = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
-  const geofence_radius = rawRadius && !isNaN(parseInt(rawRadius, 10)) ? parseInt(rawRadius, 10) : 30;
+  const geofence_radius = clampGeofenceRadius(rawRadius);
 
   const result = DataStore.createSeries({
     title,

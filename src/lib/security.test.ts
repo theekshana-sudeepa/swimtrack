@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { timingSafeMatch, sanitizeString, sanitizeEmail, sanitizePhone } from "./security";
+import {
+  timingSafeMatch,
+  sanitizeString,
+  sanitizeEmail,
+  sanitizePhone,
+  generateSwimmerToken,
+  isStrongSwimmerToken,
+} from "./security";
 import { SlidingWindowRateLimiter } from "./rate-limiter";
 
 describe("Security Utilities", () => {
@@ -110,6 +117,23 @@ describe("Security Utilities", () => {
       limiter.recordFailure("ip-3");
       limiter.reset("ip-3");
       expect(limiter.check("ip-3").remainingAttempts).toBe(3);
+    });
+  });
+
+  describe("Swimmer Pass Tokens", () => {
+    it("generates unique 192-bit unguessable tokens and rejects weak/derived strings", () => {
+      const t1 = generateSwimmerToken();
+      const t2 = generateSwimmerToken();
+      expect(t1).not.toBe(t2);
+      expect(isStrongSwimmerToken(t1)).toBe(true);
+      expect(isStrongSwimmerToken(t2)).toBe(true);
+
+      // Legacy / guessable strings must never pass as strong tokens
+      expect(isStrongSwimmerToken("token_liam_perera_2026")).toBe(false);
+      expect(isStrongSwimmerToken("liam@example.com")).toBe(false);
+      expect(isStrongSwimmerToken("st_short")).toBe(false);
+      expect(isStrongSwimmerToken("")).toBe(false);
+      expect(isStrongSwimmerToken(null)).toBe(false);
     });
   });
 });

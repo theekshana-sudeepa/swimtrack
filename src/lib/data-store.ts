@@ -25,6 +25,19 @@ import {
   calculateMinutesLate,
   isSessionUpcomingOrActive,
 } from "./attendance-calculator";
+import { generateSwimmerToken, isStrongSwimmerToken, timingSafeMatch } from "./security";
+
+/** Coach-configurable attendance rules (Settings -> General). */
+export interface AttendancePolicy {
+  /** Minutes after start before a GPS check-in counts as late. */
+  lateThresholdMinutes: number;
+  /** Swimmers can self-report an excuse only until this many minutes before start. */
+  excuseCutoffMinutes: number;
+}
+export const DEFAULT_ATTENDANCE_POLICY: AttendancePolicy = {
+  lateThresholdMinutes: 10,
+  excuseCutoffMinutes: 60,
+};
 
 // In-memory persistent state (persists across requests during server runtime)
 interface StoreState {
@@ -126,9 +139,52 @@ export const DataStore = {
   // ---------------------------------------------------------------------------
   // Supabase Hydration & Synchronization
   // ---------------------------------------------------------------------------
-  async syncFromSupabase(): Promise<boolean> {
+  /**
+   * Pulls the latest state from Supabase. Pass `maxAgeMs` on high-traffic swimmer paths to reuse
+   * a recent snapshot (concurrent callers share one fetch) instead of reloading every table.
+   */
+  async syncFromSupabase(options?: { maxAgeMs?: number }): Promise<boolean> {
     const { SupabaseDB } = await import("./supabase-db");
-    return SupabaseDB.syncStoreFromSupabase();
+    return SupabaseDB.syncStoreFromSupabase(options);
+  },
+
+  /** Merges one freshly-read session row into memory (targeted refresh). */
+  upsertSessionRecord(session: SwimSession): void {
+    const idx = store.sessions.findIndex((s) => s.id === session.id);
+    if (idx === -1) store.sessions.push(session);
+    else store.sessions[idx] = { ...store.sessions[idx], ...session };
+  },
+
+  /** Merges one freshly-read attendance row into memory (targeted refresh). */
+  upsertAttendanceRecord(record: AttendanceRecord): void {
+    const idx = store.attendance.findIndex(
+      (a) => a.session_id === record.session_id && a.swimmer_id === record.swimmer_id
+    );
+    if (idx === -1) store.attendance.push(record);
+    else store.attendance[idx] = { ...store.attendance[idx], ...record };
+  },
+
+  /** Reads the coach-configurable attendance rules with safe clamping. */
+  getAttendancePolicy(): AttendancePolicy {
+    const general = (store.settings.general?.value || {}) as Record<string, unknown>;
+    const num = (v: unknown, fallback: number, min: number, max: number) => {
+      const n = typeof v === "number" ? v : parseInt(String(v ?? ""), 10);
+      return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+    };
+    return {
+      lateThresholdMinutes: num(
+        general.late_threshold_minutes,
+        DEFAULT_ATTENDANCE_POLICY.lateThresholdMinutes,
+        0,
+        120
+      ),
+      excuseCutoffMinutes: num(
+        general.excuse_cutoff_minutes,
+        DEFAULT_ATTENDANCE_POLICY.excuseCutoffMinutes,
+        0,
+        24 * 60
+      ),
+    };
   },
 
   hydrateSwimmers(swimmers: Swimmer[]): void {
@@ -300,7 +356,7 @@ export const DataStore = {
         id: prefId,
         swimmer_id: newId,
         email_reminders_enabled: data.email_reminders_enabled ?? (data.email ? true : false),
-        opt_out_token: `token_${newId}`,
+        opt_out_token: generateSwimmerToken(),
       },
     };
 
@@ -672,7 +728,8 @@ export const DataStore = {
     swimmerId: string,
     status: AttendanceStatus,
     notes?: string,
-    adminId?: string
+    adminId?: string,
+    method: "coach_manual" | "bulk" = "coach_manual"
   ): { record: AttendanceRecord; auditLog: AttendanceAuditLog } {
     let index = store.attendance.findIndex(
       (a) => a.session_id === sessionId && a.swimmer_id === swimmerId
@@ -689,6 +746,9 @@ export const DataStore = {
         swimmer_id: swimmerId,
         status,
         notes: notes || null,
+        checkin_method: method,
+        checkin_distance: null,
+        checkin_accuracy: null,
         marked_at: now,
         marked_by: adminId || "admin",
         updated_at: now,
@@ -697,12 +757,18 @@ export const DataStore = {
       index = store.attendance.length - 1;
     } else {
       oldStatus = store.attendance[index].status;
+      const statusChanged = oldStatus !== status;
       store.attendance[index] = {
         ...store.attendance[index],
         status,
         notes: notes !== undefined ? notes : store.attendance[index].notes,
         updated_at: now,
         marked_by: adminId || "admin",
+        // A coach changing the status makes the old GPS evidence meaningless: record who really
+        // decided it. A note-only edit keeps the original check-in provenance.
+        ...(statusChanged
+          ? { checkin_method: method, checkin_distance: null, checkin_accuracy: null }
+          : {}),
       };
     }
 
@@ -734,28 +800,47 @@ export const DataStore = {
     };
   },
 
-  markAllPresent(sessionId: string, adminId?: string): number {
-    const list = store.attendance.filter((a) => a.session_id === sessionId);
-    let updatedCount = 0;
-    for (const item of list) {
-      if (item.status !== "present") {
-        this.updateAttendanceStatus(sessionId, item.swimmer_id, "present", "Bulk marked present", adminId);
-        updatedCount++;
-      }
+  /**
+   * Marks every UNMARKED swimmer present. Swimmers who are already present, late, absent or
+   * excused (incl. GPS-verified check-ins) are never touched. Returns the records that changed.
+   */
+  markAllPresent(sessionId: string, adminId?: string): AttendanceRecord[] {
+    const targets = store.attendance.filter(
+      (a) => a.session_id === sessionId && a.status === "not_marked"
+    );
+    const changed: AttendanceRecord[] = [];
+    for (const item of targets) {
+      const { record } = this.updateAttendanceStatus(
+        sessionId,
+        item.swimmer_id,
+        "present",
+        "Bulk marked present",
+        adminId,
+        "bulk"
+      );
+      changed.push(record);
     }
-    return updatedCount;
+    return changed;
   },
 
-  markRemainingAbsent(sessionId: string, adminId?: string): number {
-    const list = store.attendance.filter((a) => a.session_id === sessionId);
-    let updatedCount = 0;
-    for (const item of list) {
-      if (item.status === "not_marked") {
-        this.updateAttendanceStatus(sessionId, item.swimmer_id, "absent", "Marked remaining absent", adminId);
-        updatedCount++;
-      }
+  /** Marks every UNMARKED swimmer absent. Returns the records that changed. */
+  markRemainingAbsent(sessionId: string, adminId?: string): AttendanceRecord[] {
+    const targets = store.attendance.filter(
+      (a) => a.session_id === sessionId && a.status === "not_marked"
+    );
+    const changed: AttendanceRecord[] = [];
+    for (const item of targets) {
+      const { record } = this.updateAttendanceStatus(
+        sessionId,
+        item.swimmer_id,
+        "absent",
+        "Marked remaining absent",
+        adminId,
+        "bulk"
+      );
+      changed.push(record);
     }
-    return updatedCount;
+    return changed;
   },
 
   getAttendanceAuditLogs(options?: {
@@ -1052,25 +1137,58 @@ export const DataStore = {
     };
   },
 
+  /**
+   * Resolves a swimmer pass token. ONLY the swimmer's secret `opt_out_token` matches:
+   * never the swimmer id or email (both are discoverable, so they are not credentials).
+   * Legacy guessable tokens (`token_<id>`, demo tokens) are honoured only in demo mode,
+   * i.e. when no database is configured.
+   */
   getSwimmerByToken(token: string): Swimmer | null {
-    if (!token) return null;
+    if (!token || typeof token !== "string") return null;
     const cleanToken = token.trim();
-    const adminEmail = (process.env.ADMIN_EMAIL || "admin@example.com").toLowerCase();
+    if (!cleanToken || cleanToken.length > 200) return null;
 
-    // Prevent anyone from accessing or spoofing an administrator portal via swimmer pass
-    if (cleanToken.toLowerCase() === adminEmail) {
-      return null;
+    const demoMode = !process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const acceptable = isStrongSwimmerToken(cleanToken) || (demoMode && cleanToken.startsWith("token_"));
+    if (!acceptable) return null;
+
+    return (
+      store.swimmers.find((s) => {
+        const stored = s.reminder_preferences?.opt_out_token;
+        return typeof stored === "string" && timingSafeMatch(stored, cleanToken);
+      }) || null
+    );
+  },
+
+  /**
+   * Guarantees the swimmer has an unguessable pass token, minting one if the current token is
+   * missing or weak. `changed` tells the caller it must be persisted.
+   */
+  ensureSwimmerToken(swimmerId: string): { token: string; changed: boolean; prefId: string } | null {
+    const swimmer = store.swimmers.find((s) => s.id === swimmerId);
+    if (!swimmer) return null;
+
+    const pref = swimmer.reminder_preferences;
+    if (pref?.opt_out_token && isStrongSwimmerToken(pref.opt_out_token)) {
+      return { token: pref.opt_out_token, changed: false, prefId: pref.id };
+    }
+    // Demo mode keeps its readable demo tokens working
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY && pref?.opt_out_token?.startsWith("token_")) {
+      return { token: pref.opt_out_token, changed: false, prefId: pref.id };
     }
 
-    const swimmers = this.getSwimmers({ status: "all" });
-    return (
-      swimmers.find(
-        (s) =>
-          s.reminder_preferences?.opt_out_token === cleanToken ||
-          s.id === cleanToken ||
-          (s.email && s.email.toLowerCase() === cleanToken.toLowerCase())
-      ) || null
-    );
+    const token = generateSwimmerToken();
+    if (pref) {
+      pref.opt_out_token = token;
+    } else {
+      swimmer.reminder_preferences = {
+        id: crypto.randomUUID(),
+        swimmer_id: swimmer.id,
+        email_reminders_enabled: Boolean(swimmer.email),
+        opt_out_token: token,
+      };
+    }
+    return { token, changed: true, prefId: swimmer.reminder_preferences!.id };
   },
 
   getSwimmerAttendanceHistory(swimmerId: string) {
@@ -1122,46 +1240,119 @@ export const DataStore = {
     });
   },
 
-  submitSwimmerRsvp(
+  /**
+   * Swimmer-reported excuse ("Can't make it"). This NEVER marks a swimmer present/late —
+   * only geofence check-in or the coach can do that.
+   *
+   * Integrity rules:
+   *  - Cannot touch a record that is already present/late (verified or coach-marked).
+   *  - Cannot touch a coach-set "absent" record or a coach-set excuse.
+   *  - "clear" only reverts an excuse that the swimmer created themselves ("RSVP:" prefix).
+   *  - Every change is written to the audit log.
+   */
+  submitSwimmerExcuse(
     swimmerId: string,
     sessionId: string,
-    status: "attending" | "declined",
+    action: "declare" | "clear",
     reason?: string
-  ) {
-    let record = store.attendance.find(
+  ):
+    | { success: true; record: AttendanceRecord; oldStatus: AttendanceStatus; changeReason: string }
+    | { success: false; error: string } {
+    const nowIso = new Date().toISOString();
+    const existing = store.attendance.find(
       (a) => a.swimmer_id === swimmerId && a.session_id === sessionId
     );
+    const oldStatus: AttendanceStatus = existing?.status ?? "not_marked";
 
-    const nowIso = new Date().toISOString();
-
-    if (!record) {
-      record = {
-        id: `att-${sessionId}-${swimmerId}`,
-        session_id: sessionId,
-        swimmer_id: swimmerId,
-        status: status === "declined" ? "excused" : "not_marked",
-        notes:
-          status === "declined"
-            ? `RSVP: Excused - ${reason || "Cannot attend"}`
-            : "RSVP: Confirmed Attending 🏊",
-        marked_at: nowIso,
-        updated_at: nowIso,
+    if (existing && (existing.status === "present" || existing.status === "late")) {
+      return {
+        success: false,
+        error: `You are already marked ${existing.status.toUpperCase()}. Ask the coach if this needs to change.`,
       };
-      store.attendance.push(record);
-    } else {
-      if (status === "declined") {
-        record.status = "excused";
-        record.notes = `RSVP: Excused - ${reason || "Cannot attend"}`;
-      } else {
-        if (record.status === "excused" || record.status === "absent") {
-          record.status = "not_marked";
-        }
-        record.notes = "RSVP: Confirmed Attending 🏊";
-      }
-      record.updated_at = nowIso;
+    }
+    if (existing?.status === "absent") {
+      return { success: false, error: "The coach marked you absent. Please contact the coach." };
     }
 
-    return record;
+    const isSelfExcuse = Boolean(existing?.notes?.startsWith("RSVP:"));
+    if (existing?.status === "excused" && !isSelfExcuse) {
+      return { success: false, error: "The coach already recorded an excuse for you." };
+    }
+
+    let record: AttendanceRecord;
+    let changeReason: string;
+
+    if (action === "declare") {
+      const notes = `RSVP: Excused - ${reason || "Cannot attend"}`;
+      changeReason = `Swimmer self-reported excuse (${reason || "Cannot attend"})`;
+      if (existing) {
+        existing.status = "excused";
+        existing.notes = notes;
+        existing.updated_at = nowIso;
+        record = existing;
+      } else {
+        record = {
+          id: `att-${sessionId}-${swimmerId}`,
+          session_id: sessionId,
+          swimmer_id: swimmerId,
+          status: "excused",
+          notes,
+          marked_at: nowIso,
+          updated_at: nowIso,
+        };
+        store.attendance.push(record);
+      }
+    } else {
+      if (!existing || existing.status !== "excused") {
+        return { success: false, error: "There is no excuse to clear." };
+      }
+      changeReason = "Swimmer cleared their self-reported excuse";
+      existing.status = "not_marked";
+      existing.notes = null;
+      existing.updated_at = nowIso;
+      record = existing;
+    }
+
+    const swimmer = store.swimmers.find((s) => s.id === swimmerId);
+    const session = store.sessions.find((s) => s.id === sessionId);
+    store.auditLogs.unshift({
+      id: crypto.randomUUID(),
+      session_id: sessionId,
+      swimmer_id: swimmerId,
+      old_status: oldStatus,
+      new_status: record.status,
+      change_reason: changeReason,
+      actor_id: swimmerId,
+      created_at: nowIso,
+      swimmer_name: swimmer ? swimmer.full_name : "Swimmer",
+      session_title: session ? session.title : "Swim Session",
+    });
+
+    return { success: true, record, oldStatus, changeReason };
+  },
+
+  /**
+   * Rolls an attendance record back to its previous state (used when persisting to the database
+   * fails, so memory never claims something the database does not have).
+   */
+  revertAttendanceChange(
+    sessionId: string,
+    swimmerId: string,
+    previous: AttendanceRecord | null,
+    auditLogId?: string
+  ): void {
+    const idx = store.attendance.findIndex(
+      (a) => a.session_id === sessionId && a.swimmer_id === swimmerId
+    );
+    if (previous) {
+      if (idx === -1) store.attendance.push(previous);
+      else store.attendance[idx] = previous;
+    } else if (idx !== -1) {
+      store.attendance.splice(idx, 1);
+    }
+    if (auditLogId) {
+      store.auditLogs = store.auditLogs.filter((l) => l.id !== auditLogId);
+    }
   },
 
   checkInSwimmerWithGeofence(
@@ -1170,7 +1361,9 @@ export const DataStore = {
     status: AttendanceStatus,
     distanceMeters: number,
     accuracyMeters: number,
-    reason?: string
+    reason?: string,
+    /** Human note stored on the row; defaults to `reason`. */
+    note?: string
   ): { record: AttendanceRecord; auditLog: AttendanceAuditLog } {
     let index = store.attendance.findIndex(
       (a) => a.session_id === sessionId && a.swimmer_id === swimmerId
@@ -1185,7 +1378,7 @@ export const DataStore = {
         session_id: sessionId,
         swimmer_id: swimmerId,
         status,
-        notes: reason || `Self check-in via Geofence (${distanceMeters}m away)`,
+        notes: note || reason || `Self check-in via Geofence (${distanceMeters}m away)`,
         checkin_method: "geofence_self",
         checkin_distance: distanceMeters,
         checkin_accuracy: accuracyMeters,
@@ -1200,7 +1393,7 @@ export const DataStore = {
       store.attendance[index] = {
         ...store.attendance[index],
         status,
-        notes: reason || `Self check-in via Geofence (${distanceMeters}m away)`,
+        notes: note || reason || `Self check-in via Geofence (${distanceMeters}m away)`,
         checkin_method: "geofence_self",
         checkin_distance: distanceMeters,
         checkin_accuracy: accuracyMeters,

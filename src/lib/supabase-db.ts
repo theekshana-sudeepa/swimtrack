@@ -1,13 +1,42 @@
 import { getSupabaseAdminClient } from "./supabase-client";
 import { DataStore } from "./data-store";
+import { DEFAULT_GEOFENCE_RADIUS_METERS } from "./geo-fence";
 import {
   Swimmer,
   SwimSession,
   AttendanceRecord,
+  AttendanceStatus,
   ReminderDelivery,
   AppSetting,
   SessionSeries,
 } from "@/types/database";
+
+/** Maps a swim_sessions row to the app model (shared by full sync and targeted refresh). */
+function mapSessionRow(row: Record<string, unknown>): SwimSession {
+  return {
+    id: row.id as string,
+    series_id: (row.series_id as string) || null,
+    title: row.title as string,
+    date: row.date as string,
+    start_time: row.start_time as string,
+    end_time: row.end_time as string,
+    location: row.location as string,
+    latitude: row.latitude != null ? Number(row.latitude) : null,
+    longitude: row.longitude != null ? Number(row.longitude) : null,
+    geofence_radius:
+      row.geofence_radius != null ? Number(row.geofence_radius) : DEFAULT_GEOFENCE_RADIUS_METERS,
+    notes: (row.notes as string) || null,
+    status: (row.status as "scheduled" | "completed" | "cancelled") || "scheduled",
+    is_finalized: !!row.is_finalized,
+    finalized_at: (row.finalized_at as string) || null,
+    finalized_by: (row.finalized_by as string) || null,
+    created_at: row.created_at as string | undefined,
+    updated_at: row.updated_at as string | undefined,
+  };
+}
+
+let lastSyncAt = 0;
+let inflightSync: Promise<boolean> | null = null;
 
 export const SupabaseDB = {
   isConfigured(): boolean {
@@ -18,7 +47,96 @@ export const SupabaseDB = {
    * Synchronizes the in-memory DataStore cache with live Supabase Postgres tables.
    * Runs in parallel across all core tables.
    */
-  async syncStoreFromSupabase(): Promise<boolean> {
+  async syncStoreFromSupabase(options?: { maxAgeMs?: number }): Promise<boolean> {
+    const maxAgeMs = options?.maxAgeMs ?? 0;
+    if (maxAgeMs > 0) {
+      // Fresh-enough snapshot: reuse it (high-traffic swimmer paths)
+      if (lastSyncAt > 0 && Date.now() - lastSyncAt < maxAgeMs) return true;
+      // Collapse concurrent callers into a single fetch
+      if (inflightSync) return inflightSync;
+      inflightSync = SupabaseDB.fetchAndHydrateStore()
+        .then((ok) => {
+          if (ok) lastSyncAt = Date.now();
+          return ok;
+        })
+        .finally(() => {
+          inflightSync = null;
+        });
+      return inflightSync;
+    }
+
+    const ok = await SupabaseDB.fetchAndHydrateStore();
+    if (ok) lastSyncAt = Date.now();
+    return ok;
+  },
+
+  /**
+   * Targeted refresh of the two rows a swimmer action depends on (session + own attendance row),
+   * so decisions are made on current data without reloading every table.
+   * Returns false when the database could not be read.
+   */
+  async refreshSessionAndAttendance(sessionId: string, swimmerId: string): Promise<boolean> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return true; // in-memory / demo mode: memory is the source of truth
+
+    try {
+      const [sessionRes, attendanceRes] = await Promise.all([
+        supabase.from("swim_sessions").select("*").eq("id", sessionId).maybeSingle(),
+        supabase
+          .from("attendance")
+          .select("*")
+          .eq("session_id", sessionId)
+          .eq("swimmer_id", swimmerId)
+          .maybeSingle(),
+      ]);
+      if (sessionRes.error || attendanceRes.error) {
+        console.warn("[SupabaseDB] Targeted refresh failed:", sessionRes.error || attendanceRes.error);
+        return false;
+      }
+      if (sessionRes.data) DataStore.upsertSessionRecord(mapSessionRow(sessionRes.data));
+      if (attendanceRes.data) {
+        DataStore.upsertAttendanceRecord(attendanceRes.data as AttendanceRecord);
+      }
+      return true;
+    } catch (err) {
+      console.warn("[SupabaseDB] Targeted refresh failed:", err);
+      return false;
+    }
+  },
+
+  /** Persists a (re)minted swimmer pass token. Returns false if the write failed. */
+  async persistSwimmerToken(
+    swimmerId: string,
+    prefId: string,
+    token: string,
+    emailRemindersEnabled: boolean
+  ): Promise<boolean> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return true;
+    try {
+      const { error } = await supabase.from("reminder_preferences").upsert(
+        {
+          id: prefId,
+          swimmer_id: swimmerId,
+          email_reminders_enabled: emailRemindersEnabled,
+          opt_out_token: token,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "swimmer_id" }
+      );
+      if (error) {
+        console.error("[SupabaseDB] Error persisting swimmer token:", error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error("[SupabaseDB] Error persisting swimmer token:", err);
+      return false;
+    }
+  },
+
+  /** Full read of every core table into the in-memory store. */
+  async fetchAndHydrateStore(): Promise<boolean> {
     const supabase = getSupabaseAdminClient();
     if (!supabase) return false;
 
@@ -71,7 +189,7 @@ export const SupabaseDB = {
                   id: (pref.id as string) || `pref-${row.id}`,
                   swimmer_id: row.id as string,
                   email_reminders_enabled: pref.email_reminders_enabled !== false,
-                  opt_out_token: (pref.opt_out_token as string) || `token_${row.id}`,
+                  opt_out_token: (pref.opt_out_token as string) || null,
                   opted_out_at: (pref.opted_out_at as string) || null,
                 }
               : null,
@@ -83,25 +201,9 @@ export const SupabaseDB = {
 
       // 2. Swim Sessions
       if (sessionsRes.data && sessionsRes.data.length > 0) {
-        const mappedSessions: SwimSession[] = sessionsRes.data.map((row: Record<string, unknown>) => ({
-          id: row.id as string,
-          series_id: (row.series_id as string) || null,
-          title: row.title as string,
-          date: row.date as string,
-          start_time: row.start_time as string,
-          end_time: row.end_time as string,
-          location: row.location as string,
-          latitude: row.latitude != null ? Number(row.latitude) : null,
-          longitude: row.longitude != null ? Number(row.longitude) : null,
-          geofence_radius: row.geofence_radius != null ? Number(row.geofence_radius) : 30,
-          notes: (row.notes as string) || null,
-          status: (row.status as "scheduled" | "completed" | "cancelled") || "scheduled",
-          is_finalized: !!row.is_finalized,
-          finalized_at: (row.finalized_at as string) || null,
-          finalized_by: (row.finalized_by as string) || null,
-          created_at: row.created_at as string | undefined,
-          updated_at: row.updated_at as string | undefined,
-        }));
+        const mappedSessions: SwimSession[] = sessionsRes.data.map((row: Record<string, unknown>) =>
+          mapSessionRow(row)
+        );
         DataStore.hydrateSessions(mappedSessions);
       }
 
@@ -283,10 +385,12 @@ export const SupabaseDB = {
   async upsertAttendance(
     record: AttendanceRecord,
     actorId?: string,
-    changeReason?: string
-  ): Promise<void> {
+    changeReason?: string,
+    oldStatus: AttendanceStatus = "not_marked"
+  ): Promise<boolean> {
     const supabase = getSupabaseAdminClient();
-    if (!supabase) return;
+    // No database configured (demo / in-memory mode): nothing to persist, not a failure.
+    if (!supabase) return true;
     try {
       const isValidUuid = (val?: string | null) =>
         typeof val === "string" &&
@@ -317,6 +421,7 @@ export const SupabaseDB = {
 
       if (baseError) {
         console.error("[SupabaseDB] Error upserting attendance base payload:", baseError);
+        return false;
       } else {
         // 2. Safely attempt updating geofence columns if present on the record
         // This is non-fatal so if the migration isn't applied yet, standard attendance still succeeds 100%!
@@ -327,9 +432,12 @@ export const SupabaseDB = {
         ) {
           try {
             const geoPayload: Record<string, unknown> = {};
-            if (record.checkin_method) geoPayload.checkin_method = record.checkin_method;
-            if (record.checkin_distance != null) geoPayload.checkin_distance = record.checkin_distance;
-            if (record.checkin_accuracy != null) geoPayload.checkin_accuracy = record.checkin_accuracy;
+            if (record.checkin_method) {
+              geoPayload.checkin_method = record.checkin_method;
+              // Always write distance/accuracy with the method so stale GPS evidence is cleared
+              geoPayload.checkin_distance = record.checkin_distance ?? null;
+              geoPayload.checkin_accuracy = record.checkin_accuracy ?? null;
+            }
 
             await supabase
               .from("attendance")
@@ -346,14 +454,16 @@ export const SupabaseDB = {
       await supabase.from("attendance_audit_log").insert({
         session_id: record.session_id,
         swimmer_id: record.swimmer_id,
-        old_status: "not_marked",
+        old_status: oldStatus,
         new_status: record.status,
         change_reason: changeReason || record.notes || "Attendance status marked",
         actor_id: isValidUuid(actorId) ? actorId : null,
         created_at: new Date().toISOString(),
       });
+      return true;
     } catch (err) {
       console.error("[SupabaseDB] Error upserting attendance:", err);
+      return false;
     }
   },
 
@@ -365,9 +475,9 @@ export const SupabaseDB = {
     records: AttendanceRecord[],
     actorId?: string,
     changeReason?: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     const supabase = getSupabaseAdminClient();
-    if (!supabase || records.length === 0) return;
+    if (!supabase || records.length === 0) return true;
     try {
       const isValidUuid = (val?: string | null) =>
         typeof val === "string" &&
@@ -408,6 +518,7 @@ export const SupabaseDB = {
 
       if (error) {
         console.error("[SupabaseDB] Error in bulkUpsertAttendance:", error);
+        return false;
       }
 
       // Batch insert audit log entries
@@ -422,8 +533,10 @@ export const SupabaseDB = {
       }));
 
       await supabase.from("attendance_audit_log").insert(auditRows);
+      return true;
     } catch (err) {
       console.error("[SupabaseDB] Error bulk upserting attendance:", err);
+      return false;
     }
   },
 

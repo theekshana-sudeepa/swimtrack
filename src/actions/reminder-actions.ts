@@ -101,6 +101,29 @@ export async function sendTestWelcomeEmailAction(testEmail: string) {
   return res;
 }
 
+export async function sendTestPassSetupEmailAction(testEmail: string) {
+  await requireAdminSession();
+
+  const mockSwimmer = {
+    id: "test-setup-swimmer",
+    full_name: "Test Squad Swimmer",
+    nickname: "Aqua Cadet",
+    email: testEmail.trim(),
+    join_date: new Date().toISOString().split("T")[0],
+    status: "active" as const,
+    reminder_preferences: {
+      id: "pref-test-setup",
+      swimmer_id: "test-setup-swimmer",
+      email_reminders_enabled: true,
+      opt_out_token: "demo_pass_token",
+    },
+  };
+
+  const res = await sendSwimmerPassSetupEmail({ swimmer: mockSwimmer });
+  revalidatePath("/reminders");
+  return res;
+}
+
 export async function sendSwimmerPassSetupEmailAction(swimmerId: string) {
   await requireAdminSession();
   await DataStore.syncFromSupabase();

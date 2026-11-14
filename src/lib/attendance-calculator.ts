@@ -335,3 +335,31 @@ export function parseLateInfo(notes?: string | null): LateArrivalInfo | null {
   };
 }
 
+
+/**
+ * Minutes from `now` until the session starts, in Asia/Colombo time.
+ * Positive = still in the future, negative = already started. Days apart are handled exactly.
+ */
+export function getMinutesUntilSessionStart(
+  session: { date: string; start_time: string },
+  now: Date = new Date()
+): number {
+  const colomboNow = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const part = (t: string) => Number(colomboNow.find((p) => p.type === t)?.value);
+  const hour = part("hour") === 24 ? 0 : part("hour");
+  const nowUtcLike = Date.UTC(part("year"), part("month") - 1, part("day"), hour, part("minute"));
+
+  const [y, m, d] = session.date.split("-").map(Number);
+  const startMinutes = parseTimeToMinutes(session.start_time);
+  const startUtcLike = Date.UTC(y, m - 1, d, Math.floor(startMinutes / 60), startMinutes % 60);
+
+  return Math.round((startUtcLike - nowUtcLike) / 60000);
+}

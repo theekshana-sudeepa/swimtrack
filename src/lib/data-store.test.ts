@@ -64,7 +64,7 @@ describe("DataStore In-Memory Repository", () => {
     const initialAttendance = DataStore.getSessionAttendance(session.id);
     expect(initialAttendance.every((a) => a.status === "not_marked")).toBe(true);
 
-    const markedCount = DataStore.markAllPresent(session.id);
+    const markedCount = DataStore.markAllPresent(session.id).length;
     expect(markedCount).toBe(initialAttendance.length);
 
     const updatedAttendance = DataStore.getSessionAttendance(session.id);
@@ -170,7 +170,7 @@ describe("DataStore In-Memory Repository", () => {
     expect(remainingAudit.length).toBe(0);
   });
 
-  it("does not return expired past sessions as upcoming and correctly records attending RSVP", () => {
+  it("does not return expired past sessions as upcoming and handles self-reported excuses", () => {
     // In initial demo data, sessions are scheduled on 2026-11-07 and 2026-11-11
     // Which are in the past relative to current local date
     const swimmer = DataStore.getSwimmers({ status: "active" })[0];
@@ -188,16 +188,19 @@ describe("DataStore In-Memory Repository", () => {
     expect(nextUpcoming).not.toBeNull();
     expect(nextUpcoming?.id).toBe(futureSession.id);
 
-    // Swimmer taps "I'm Coming Bro!" (status: "attending")
-    const rsvpRecord = DataStore.submitSwimmerRsvp(
-      swimmer.id,
-      futureSession.id,
-      "attending"
-    );
+    // Swimmer self-reports an excuse for the future session
+    const excuse = DataStore.submitSwimmerExcuse(swimmer.id, futureSession.id, "declare", "Exam");
+    expect(excuse.success).toBe(true);
+    if (excuse.success) {
+      expect(excuse.record.status).toBe("excused");
+    }
 
-    expect(rsvpRecord).not.toBeNull();
-    expect(rsvpRecord?.status).toBe("not_marked");
-    expect(rsvpRecord?.notes).toBe("RSVP: Confirmed Attending 🏊");
+    // ...and can clear it again, returning to not_marked (never present)
+    const cleared = DataStore.submitSwimmerExcuse(swimmer.id, futureSession.id, "clear");
+    expect(cleared.success).toBe(true);
+    if (cleared.success) {
+      expect(cleared.record.status).toBe("not_marked");
+    }
 
     // Clean up future session
     DataStore.deleteSession(futureSession.id);
@@ -206,6 +209,109 @@ describe("DataStore In-Memory Repository", () => {
     // getNextUpcomingSession MUST return null instead of falling back to stale past sessions
     const expiredNext = DataStore.getNextUpcomingSession();
     expect(expiredNext).toBeNull();
+  });
+
+  describe("Swimmer excuse integrity", () => {
+    function makeSession() {
+      return DataStore.createSession({
+        title: "Integrity Practice",
+        date: "2099-12-02",
+        start_time: "06:00:00",
+        end_time: "07:30:00",
+        location: "Olympic Pool Complex",
+      });
+    }
+
+    it("never lets a swimmer overwrite a verified present/late record", () => {
+      const swimmer = DataStore.getSwimmers({ status: "active" })[0];
+      const session = makeSession();
+      DataStore.checkInSwimmerWithGeofence(swimmer.id, session.id, "present", 10, 8, "Self check-in");
+
+      const res = DataStore.submitSwimmerExcuse(swimmer.id, session.id, "declare", "Changed my mind");
+      expect(res.success).toBe(false);
+      const rec = DataStore.getSessionAttendance(session.id).find((a) => a.swimmer_id === swimmer.id);
+      expect(rec?.status).toBe("present");
+      DataStore.deleteSession(session.id);
+    });
+
+    it("never lets a swimmer launder a coach-marked absence into an excuse or clear it", () => {
+      const swimmer = DataStore.getSwimmers({ status: "active" })[0];
+      const session = makeSession();
+      DataStore.updateAttendanceStatus(session.id, swimmer.id, "absent", "No show");
+
+      expect(DataStore.submitSwimmerExcuse(swimmer.id, session.id, "declare", "x").success).toBe(false);
+      expect(DataStore.submitSwimmerExcuse(swimmer.id, session.id, "clear").success).toBe(false);
+      DataStore.deleteSession(session.id);
+    });
+
+    it("cannot clear a coach-recorded excuse", () => {
+      const swimmer = DataStore.getSwimmers({ status: "active" })[0];
+      const session = makeSession();
+      DataStore.updateAttendanceStatus(session.id, swimmer.id, "excused", "Excused: Sick");
+
+      expect(DataStore.submitSwimmerExcuse(swimmer.id, session.id, "declare", "x").success).toBe(false);
+      DataStore.deleteSession(session.id);
+    });
+  });
+
+  describe("Bulk actions and check-in provenance", () => {
+    function makeSession() {
+      return DataStore.createSession({
+        title: "Bulk Practice",
+        date: "2099-12-03",
+        start_time: "06:00:00",
+        end_time: "07:30:00",
+        location: "Olympic Pool Complex",
+      });
+    }
+
+    it("markAllPresent only changes unmarked swimmers and never overwrites late/excused/absent/GPS", () => {
+      const [a, b, c, d] = DataStore.getSwimmers({ status: "active" });
+      const session = makeSession();
+      DataStore.updateAttendanceStatus(session.id, a.id, "late", "Late 10m");
+      DataStore.updateAttendanceStatus(session.id, b.id, "excused", "Excused: Sick");
+      DataStore.updateAttendanceStatus(session.id, c.id, "absent", "No show");
+      DataStore.checkInSwimmerWithGeofence(d.id, session.id, "present", 12, 8, "GPS");
+
+      const changed = DataStore.markAllPresent(session.id);
+      const get = (id: string) =>
+        DataStore.getSessionAttendance(session.id).find((r) => r.swimmer_id === id)!;
+
+      expect(get(a.id).status).toBe("late");
+      expect(get(b.id).status).toBe("excused");
+      expect(get(c.id).status).toBe("absent");
+      expect(get(d.id).checkin_method).toBe("geofence_self");
+      expect(changed.every((r) => r.status === "present" && r.checkin_method === "bulk")).toBe(true);
+      DataStore.deleteSession(session.id);
+    });
+
+    it("a coach status change replaces GPS provenance, a note-only edit keeps it", () => {
+      const swimmer = DataStore.getSwimmers({ status: "active" })[0];
+      const session = makeSession();
+      DataStore.checkInSwimmerWithGeofence(swimmer.id, session.id, "present", 12, 8, "GPS");
+
+      const noteOnly = DataStore.updateAttendanceStatus(session.id, swimmer.id, "present", "extra note");
+      expect(noteOnly.record.checkin_method).toBe("geofence_self");
+      expect(noteOnly.record.checkin_distance).toBe(12);
+
+      const changed = DataStore.updateAttendanceStatus(session.id, swimmer.id, "absent", "left early");
+      expect(changed.record.checkin_method).toBe("coach_manual");
+      expect(changed.record.checkin_distance).toBeNull();
+      DataStore.deleteSession(session.id);
+    });
+
+    it("revertAttendanceChange restores the previous record and drops the audit entry", () => {
+      const swimmer = DataStore.getSwimmers({ status: "active" })[0];
+      const session = makeSession();
+
+      const result = DataStore.checkInSwimmerWithGeofence(swimmer.id, session.id, "present", 12, 8, "GPS");
+      DataStore.revertAttendanceChange(session.id, swimmer.id, null, result.auditLog.id);
+
+      const rec = DataStore.getSessionAttendance(session.id).find((r) => r.swimmer_id === swimmer.id);
+      expect(rec?.status ?? "not_marked").toBe("not_marked");
+      expect(DataStore.getAttendanceAuditLogs({ sessionId: session.id }).some((l) => l.id === result.auditLog.id)).toBe(false);
+      DataStore.deleteSession(session.id);
+    });
   });
 
   describe("Option 1: Swimmer Security PIN System", () => {
@@ -238,6 +344,20 @@ describe("DataStore In-Memory Repository", () => {
       DataStore.deleteSwimmerPin(swimmerId);
       expect(DataStore.hasSwimmerPin(swimmerId)).toBe(false);
       expect(DataStore.getSwimmerPinHash(swimmerId)).toBeNull();
+    });
+
+    it("never resolves a swimmer pass by email address or raw swimmer ID", () => {
+      const swimmer = DataStore.getSwimmers({ status: "active" })[0];
+      expect(swimmer.email).toBeTruthy();
+
+      // Discoverable identifiers must NEVER authenticate a swimmer pass
+      expect(DataStore.getSwimmerByToken(swimmer.id)).toBeNull();
+      expect(DataStore.getSwimmerByToken(swimmer.email!)).toBeNull();
+
+      // Only the secret pass token resolves the swimmer
+      const validToken = swimmer.reminder_preferences?.opt_out_token;
+      expect(validToken).toBeTruthy();
+      expect(DataStore.getSwimmerByToken(validToken!)?.id).toBe(swimmer.id);
     });
 
     it("rate limits brute-force PIN attempts after 5 failures", () => {

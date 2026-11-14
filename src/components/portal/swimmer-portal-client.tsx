@@ -30,13 +30,12 @@ import { Swimmer, SwimSession, SquadMessage } from "@/types/database";
 import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
 import {
-  submitRsvpAction,
+  submitExcuseAction,
   postChalkboardMessageAction,
   logoutSwimmerAction,
 } from "@/actions/portal-actions";
 import { PoolRadarCheckin } from "./pool-radar-checkin";
 import { AttendanceRecord } from "@/types/database";
-import confetti from "canvas-confetti";
 import { toast } from "sonner";
 import { SwimTrackLogo } from "@/components/brand/logo";
 
@@ -128,40 +127,41 @@ export function SwimmerPortalClient({
     currentAttendance?.status === "present" ||
     currentAttendance?.status === "late";
   const isExcused = currentAttendance?.status === "excused";
-  const isConfirmedAttending =
-    !isCheckedIn &&
-    !isExcused &&
-    Boolean(currentAttendance?.notes?.includes("Confirmed Attending"));
+  // Only an excuse the swimmer created themselves can be cleared by them
+  const isSelfExcuse = isExcused && Boolean(currentAttendance?.notes?.startsWith("RSVP:"));
 
-  const [isSubmittingRsvp, setIsSubmittingRsvp] = React.useState(false);
+  const [isSubmittingExcuse, setIsSubmittingExcuse] = React.useState(false);
   const [showDeclineModal, setShowDeclineModal] = React.useState(false);
   const [declineReason, setDeclineReason] = React.useState("");
 
-  // Submit RSVP (Attending or Declined)
-  async function handleRsvp(status: "attending" | "declined", reason?: string) {
-    if (!nextSession) return;
-    setIsSubmittingRsvp(true);
+  // Report or clear an excused absence. This can never mark the swimmer present -
+  // attendance is granted only by the on-location Pool Radar check-in below.
+  async function handleExcuse(action: "declare" | "clear", reason?: string) {
+    if (!nextSession || isSubmittingExcuse) return;
+    setIsSubmittingExcuse(true);
 
     try {
-      const res = await submitRsvpAction(token, nextSession.id, status, reason);
+      const res = await submitExcuseAction(token, nextSession.id, action, reason);
       if (res.success && res.record) {
         setCurrentAttendance(res.record as AttendanceRecord);
-        if (status === "attending") {
-          confetti({ particleCount: 75, spread: 70, origin: { y: 0.6 } });
-          toast.success("RSVP Confirmed! See you at the pool 🏊");
-        } else {
+        if (action === "declare") {
           toast.info("Excused absence recorded for this practice.");
           setShowDeclineModal(false);
           setDeclineReason("");
+        } else {
+          toast.info("Excuse cleared. Use the Pool Radar when you arrive.");
         }
         router.refresh();
+      } else if ((res as { needsLogin?: boolean }).needsLogin) {
+        toast.error("Please sign in with your PIN again.");
+        router.push("/portal");
       } else {
-        toast.error((res as { error?: string })?.error || "Failed to update RSVP.");
+        toast.error((res as { error?: string })?.error || "Failed to update excuse.");
       }
     } catch {
-      toast.error("Failed to submit RSVP. Please try again.");
+      toast.error("Failed to update excuse. Please try again.");
     } finally {
-      setIsSubmittingRsvp(false);
+      setIsSubmittingExcuse(false);
     }
   }
 
@@ -184,6 +184,9 @@ export function SwimmerPortalClient({
         setMessages((prev) => [res.message!, ...prev]);
         setMessageInput("");
         toast.success("Posted to Squad Chalkboard!");
+      } else if ((res as { needsLogin?: boolean }).needsLogin) {
+        toast.error("Please sign in with your PIN again.");
+        router.push("/portal");
       } else {
         toast.error(res.error || "Failed to post message.");
       }
@@ -418,53 +421,36 @@ export function SwimmerPortalClient({
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRsvp("attending")}
-                    disabled={isSubmittingRsvp}
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold border border-border bg-secondary hover:bg-secondary/80 text-foreground transition-all shrink-0 active:scale-95 disabled:opacity-50"
-                  >
-                    Clear Excuse (I Can Make It)
-                  </button>
+                  {isSelfExcuse && (
+                    <button
+                      type="button"
+                      onClick={() => handleExcuse("clear")}
+                      disabled={isSubmittingExcuse}
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold border border-border bg-secondary hover:bg-secondary/80 text-foreground transition-all shrink-0 active:scale-95 disabled:opacity-50"
+                    >
+                      Clear Excuse
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3 pt-1">
-                  <div className="flex flex-col sm:flex-row items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => handleRsvp("attending")}
-                      disabled={isSubmittingRsvp}
-                      className={cn(
-                        "w-full sm:w-auto flex-1 py-3 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50",
-                        isConfirmedAttending
-                          ? "bg-seafoam text-ocean-950 ring-2 ring-seafoam/50 font-black"
-                          : "bg-aqua hover:bg-aqua-hover text-ocean-950"
-                      )}
-                    >
-                      <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-                      <span>
-                        {isConfirmedAttending
-                          ? "I'm In! (Confirmed 🏊)"
-                          : "I'm Coming Bro! 🏊‍♂️"}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowDeclineModal(true)}
-                      disabled={isSubmittingRsvp}
-                      className="w-full sm:w-auto py-3 px-4 rounded-xl text-xs font-bold border border-border text-foreground hover:bg-secondary transition-all shrink-0 active:scale-95 disabled:opacity-50"
-                    >
-                      <span>Can&apos;t Make It (Excused 🖊️)</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <MapPin className="w-3.5 h-3.5 text-aqua shrink-0" />
+                  <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-aqua/5 border border-aqua/20 text-xs text-muted-foreground">
+                    <MapPin className="w-4 h-4 text-aqua shrink-0 mt-0.5" />
                     <span>
-                      Attendance marks on location. Use the <strong>Pool Geofence Radar</strong> below when poolside.
+                      Attendance is marked <strong className="text-foreground">only on location</strong>.
+                      Use the <strong className="text-foreground">Pool Geofence Radar</strong> below when you
+                      are poolside - there is no way to check in from home.
                     </span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowDeclineModal(true)}
+                    disabled={isSubmittingExcuse}
+                    className="text-[11px] font-semibold text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors disabled:opacity-50"
+                  >
+                    Can&apos;t make it? Report an excused absence
+                  </button>
                 </div>
               )}
             </div>
@@ -794,11 +780,11 @@ export function SwimmerPortalClient({
               </button>
               <button
                 type="button"
-                disabled={isSubmittingRsvp}
-                onClick={() => handleRsvp("declined", declineReason)}
+                disabled={isSubmittingExcuse}
+                onClick={() => handleExcuse("declare", declineReason)}
                 className="px-4 py-2 rounded-xl bg-aqua text-ocean-950 text-xs font-bold shadow-sm hover:bg-aqua-hover transition-colors disabled:opacity-50"
               >
-                {isSubmittingRsvp ? "Submitting..." : "Confirm Excuse"}
+                {isSubmittingExcuse ? "Submitting..." : "Confirm Excuse"}
               </button>
             </div>
           </div>

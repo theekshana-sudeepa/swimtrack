@@ -78,6 +78,12 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
   );
   const admin_email =
     sanitizeEmail(formData.get("admin_email") as string) || "theekshanasudeepa4@gmail.com";
+  const clampInt = (raw: FormDataEntryValue | null, fallback: number, min: number, max: number) => {
+    const n = parseInt(String(raw ?? ""), 10);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+  };
+  const late_threshold_minutes = clampInt(formData.get("late_threshold_minutes"), 10, 0, 120);
+  const excuse_cutoff_minutes = clampInt(formData.get("excuse_cutoff_minutes"), 60, 0, 24 * 60);
 
   try {
     DataStore.updateAppSetting("general", {
@@ -85,6 +91,8 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
       default_pool,
       default_duration_minutes,
       admin_email,
+      late_threshold_minutes,
+      excuse_cutoff_minutes,
       timezone: "Asia/Colombo",
     });
 
@@ -97,6 +105,8 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
           default_pool,
           default_duration_minutes,
           admin_email,
+          late_threshold_minutes,
+          excuse_cutoff_minutes,
           timezone: "Asia/Colombo",
         },
         updated_at: new Date().toISOString(),

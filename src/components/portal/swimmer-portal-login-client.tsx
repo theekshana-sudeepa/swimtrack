@@ -70,10 +70,6 @@ export function SwimmerPortalLoginClient({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
-  // Direct Token Lookup Drawer
-  const [showDirectLookup, setShowDirectLookup] = React.useState(false);
-  const [directTokenInput, setDirectTokenInput] = React.useState("");
-
   // Refs for auto-focusing 4-digit PIN boxes
   const pinInputRefs = React.useRef<(HTMLInputElement | null)[]>([]);
   const confirmInputRefs = React.useRef<(HTMLInputElement | null)[]>([]);
@@ -261,13 +257,6 @@ export function SwimmerPortalLoginClient({
     toast.info("Swimmer profile disconnected from this browser.");
   }
 
-  // Direct pass token submission
-  function handleDirectTokenSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const clean = directTokenInput.trim();
-    if (!clean) return;
-    router.push(`/portal/${encodeURIComponent(clean)}`);
-  }
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col justify-between selection:bg-aqua selection:text-ocean-950">
@@ -450,51 +439,6 @@ export function SwimmerPortalLoginClient({
               <p className="text-xs text-muted-foreground">
                 Check spelling or clear the search to view all squad members.
               </p>
-            </div>
-          )}
-        </div>
-
-        {/* Collapsible Direct Token / Email Input Fallback */}
-        <div className="pt-4 border-t border-border/70 text-center">
-          {!showDirectLookup ? (
-            <button
-              type="button"
-              onClick={() => setShowDirectLookup(true)}
-              className="text-xs text-muted-foreground hover:text-aqua transition-colors inline-flex items-center gap-1.5"
-            >
-              <span>Have a direct invite link or email token?</span>
-              <span className="underline font-semibold">Click here to look up &rarr;</span>
-            </button>
-          ) : (
-            <div className="max-w-md mx-auto p-4 rounded-2xl border border-border bg-secondary/20 space-y-3 text-left">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground">
-                  Direct Pass or Email Lookup
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowDirectLookup(false)}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <form onSubmit={handleDirectTokenSubmit} className="flex gap-2">
-                <input
-                  type="text"
-                  value={directTokenInput}
-                  onChange={(e) => setDirectTokenInput(e.target.value)}
-                  placeholder="Enter email or pass token..."
-                  className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-border bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-aqua"
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded-xl bg-aqua text-ocean-950 font-bold text-xs hover:bg-aqua-hover transition-colors shrink-0"
-                >
-                  Lookup
-                </button>
-              </form>
             </div>
           )}
         </div>

@@ -63,10 +63,10 @@ export default function WelcomeSwimmerEmail({
             {portalUrl && (
               <Section style={{ textAlign: "center", margin: "28px 0" }}>
                 <Link href={portalUrl} style={buttonStyle}>
-                  Open My Swimmer Pass & RSVP 🏊
+                  Open My Swimmer Pass &amp; Set 4-Digit PIN 🏊
                 </Link>
                 <Text style={{ fontSize: "11px", color: "#52758e", marginTop: "10px", lineHeight: "16px" }}>
-                  💡 <strong>Tip:</strong> Tap above and save it to your phone home screen! Check your attendance streak, upcoming practice times, and RSVP before sessions with 1 tap.
+                  💡 <strong>Tip:</strong> Tap above, select your name, and set your personal 4-digit PIN! Use the Pool Radar when you arrive at the pool (within 75m) to mark your attendance.
                 </Text>
               </Section>
             )}
@@ -78,10 +78,10 @@ export default function WelcomeSwimmerEmail({
                 &bull; <strong>Session Alerts:</strong> Friendly morning reminders at ~8:00 AM on scheduled swim days.
               </Text>
               <Text style={infoRowStyle}>
-                &bull; <strong>Zero Passwords:</strong> You never need to remember a password or log in. Attendance is taken poolside by our administrator.
+                &bull; <strong>On-Location GPS Check-In:</strong> Attendance is verified poolside within 75m of the pool using your 4-digit PIN (or marked by the coach).
               </Text>
               <Text style={infoRowStyle}>
-                &bull; <strong>Squad Recaps:</strong> Look out for our fun post-session stats and WhatsApp recaps.
+                &bull; <strong>Excused Absences:</strong> If you can&apos;t make a practice, report an excuse in your pass at least 60 minutes before start.
               </Text>
             </Section>
 

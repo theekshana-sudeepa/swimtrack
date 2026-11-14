@@ -9,68 +9,182 @@ import {
   hashSwimmerPin,
   verifySwimmerPinSecure,
   extractClientIp,
+  timingSafeMatch,
 } from "@/lib/security";
-import { chalkboardRateLimiter, swimmerPinRateLimiter } from "@/lib/rate-limiter";
+import {
+  chalkboardRateLimiter,
+  swimmerPinRateLimiter,
+  swimmerPinGlobalRateLimiter,
+  checkinAttemptRateLimiter,
+  checkinChallengeRateLimiter,
+  excuseRateLimiter,
+} from "@/lib/rate-limiter";
 import { getAdminSession, SWIMMER_COOKIE_NAME } from "@/lib/auth";
-import { validateGeofenceCheckin, getSessionVenueCoordinates } from "@/lib/geo-fence";
+import { validateGeofenceCheckin } from "@/lib/geo-fence";
+import {
+  isSessionUpcomingOrActive,
+  getMinutesUntilSessionStart,
+} from "@/lib/attendance-calculator";
+import {
+  issueCheckinChallenge,
+  verifyCheckinChallenge,
+  consumeCheckinChallenge,
+  attendanceStateStamp,
+  DEVICE_CHECKIN_COOKIE_NAME,
+  DEVICE_CHECKIN_TTL_MS,
+  createDeviceCheckinToken,
+  getDeviceBoundSwimmer,
+} from "@/lib/checkin-challenge";
+import { ensureStrongSwimmerToken } from "@/lib/swimmer-token-service";
+import { sendCoachExcuseNotice } from "@/lib/resend-service";
+import type { Swimmer, SwimSession } from "@/types/database";
+
+/** Reuse a recent full snapshot on swimmer paths instead of reloading every table per tap. */
+const SWIMMER_SYNC_MAX_AGE_MS = 30_000;
+
+type AuthResult =
+  | { ok: true; swimmer: Swimmer }
+  | { ok: false; error: string; needsLogin?: boolean };
 
 /**
- * 1-Tap RSVP submission from the Swimmer Pass portal.
- * Token-authenticated (passwordless).
+ * Authenticates a swimmer for any state-changing action. Requires BOTH:
+ *  1. a valid, unguessable pass token, and
+ *  2. the PIN-login session cookie for that same swimmer.
+ * A pass link alone (forwarded email, shared screenshot) can no longer act on a swimmer's behalf,
+ * so a friend cannot check in / excuse / post as someone else without their PIN.
  */
-export async function submitRsvpAction(
+async function authenticateSwimmer(token: string): Promise<AuthResult> {
+  const swimmer = DataStore.getSwimmerByToken(token);
+  if (!swimmer || swimmer.status !== "active") {
+    return { ok: false, error: "Invalid swimmer pass token." };
+  }
+
+  let cookieToken: string | undefined;
+  try {
+    cookieToken = (await cookies()).get(SWIMMER_COOKIE_NAME)?.value;
+  } catch {
+    cookieToken = undefined;
+  }
+  if (!cookieToken || !timingSafeMatch(cookieToken, token.trim())) {
+    return {
+      ok: false,
+      needsLogin: true,
+      error: "Please sign in with your PIN to continue.",
+    };
+  }
+
+  return { ok: true, swimmer };
+}
+
+/** Shared session guards for swimmer actions. Returns an error string or null. */
+function sessionBlockedReason(session: SwimSession): string | null {
+  if (session.status === "cancelled") return "This swimming practice has been cancelled.";
+  if (session.is_finalized) {
+    return "Attendance for this session has already been finalized by the coach.";
+  }
+  return null;
+}
+
+/**
+ * Swimmer self-reported excuse ("Can't make it") or clearing it again.
+ *
+ * IMPORTANT: this action can never mark a swimmer present/late. Presence is granted
+ * only by the geofenced check-in (selfCheckInWithGeofenceAction) or by the coach.
+ */
+export async function submitExcuseAction(
   token: string,
   sessionId: string,
-  status: "attending" | "declined",
+  action: "declare" | "clear",
   reason?: string
 ) {
-  const swimmer = DataStore.getSwimmerByToken(token);
-  if (!swimmer) {
-    return { success: false, error: "Invalid swimmer pass token." };
+  await DataStore.syncFromSupabase({ maxAgeMs: SWIMMER_SYNC_MAX_AGE_MS });
+
+  const auth = await authenticateSwimmer(token);
+  if (!auth.ok) return { success: false, error: auth.error, needsLogin: auth.needsLogin };
+  const swimmer = auth.swimmer;
+
+  const rate = excuseRateLimiter.check(`excuse_${swimmer.id}`);
+  if (!rate.allowed) {
+    return {
+      success: false,
+      error: `Too many attempts. Please wait ${rate.retryAfterSeconds} seconds.`,
+    };
+  }
+  excuseRateLimiter.recordFailure(`excuse_${swimmer.id}`);
+
+  // Current session + own attendance row straight from the database
+  if (!(await SupabaseDB.refreshSessionAndAttendance(sessionId, swimmer.id))) {
+    return { success: false, error: "Could not verify the session right now. Please try again." };
   }
 
   const session = DataStore.getSessionById(sessionId);
   if (!session) {
     return { success: false, error: "Swimming session not found." };
   }
+  const blocked = sessionBlockedReason(session);
+  if (blocked) return { success: false, error: blocked };
+  if (!isSessionUpcomingOrActive(session)) {
+    return {
+      success: false,
+      error: "This practice is over, so attendance can no longer be changed here. Contact the coach.",
+    };
+  }
+
+  // Excuses close X minutes before start (coach-configurable) so the coach can plan the lane
+  if (action === "declare") {
+    const { excuseCutoffMinutes } = DataStore.getAttendancePolicy();
+    if (getMinutesUntilSessionStart(session) < excuseCutoffMinutes) {
+      return {
+        success: false,
+        error: `Excuses close ${excuseCutoffMinutes} minutes before practice. Please message the coach directly.`,
+      };
+    }
+  }
 
   const cleanReason = reason ? sanitizeString(reason, 200) : undefined;
+  const result = DataStore.submitSwimmerExcuse(swimmer.id, sessionId, action, cleanReason);
+  if (!result.success) {
+    return { success: false, error: result.error };
+  }
 
-  const record = DataStore.submitSwimmerRsvp(
+  // Persist to Supabase (with actor so the audit trail names the swimmer)
+  const persisted = await SupabaseDB.upsertAttendance(
+    result.record,
     swimmer.id,
-    sessionId,
-    status,
-    cleanReason
+    result.changeReason,
+    result.oldStatus
   );
+  if (!persisted) {
+    return { success: false, error: "Could not save your change. Please try again." };
+  }
 
-  // Persist directly to Supabase
-  if (record) {
-    await SupabaseDB.upsertAttendance(
-      record,
-      undefined,
-      cleanReason ? `RSVP: ${status} (${cleanReason})` : `RSVP: ${status}`
-    );
+  // Tell the coach (never blocks or fails the swimmer's action)
+  try {
+    await sendCoachExcuseNotice({ swimmer, session, action, reason: cleanReason });
+  } catch (err) {
+    console.warn("[submitExcuseAction] Coach notice failed:", err);
   }
 
   revalidatePath(`/portal/${token}`);
   revalidatePath("/attendance");
   revalidatePath("/dashboard");
 
-  return { success: true, record };
+  return { success: true, record: result.record };
 }
 
 /**
  * Posts a message/banter on the Squad Chalkboard.
- * Token-authenticated (passwordless).
+ * Requires the swimmer's PIN-login session.
  */
 export async function postChalkboardMessageAction(token: string, content: string) {
-  const swimmer = DataStore.getSwimmerByToken(token);
-  if (!swimmer) {
-    return { success: false, error: "Invalid swimmer pass token." };
-  }
+  await DataStore.syncFromSupabase({ maxAgeMs: SWIMMER_SYNC_MAX_AGE_MS });
+
+  const auth = await authenticateSwimmer(token);
+  if (!auth.ok) return { success: false, error: auth.error, needsLogin: auth.needsLogin };
+  const swimmer = auth.swimmer;
 
   // Rate limiting against spamming the squad chalkboard
-  const rateCheck = chalkboardRateLimiter.check(`chalk_${token}`);
+  const rateCheck = chalkboardRateLimiter.check(`chalk_${swimmer.id}`);
   if (!rateCheck.allowed) {
     return {
       success: false,
@@ -94,16 +208,81 @@ export async function postChalkboardMessageAction(token: string, content: string
     is_admin: false,
   });
 
-  chalkboardRateLimiter.recordFailure(`chalk_${token}`);
+  chalkboardRateLimiter.recordFailure(`chalk_${swimmer.id}`);
 
   revalidatePath(`/portal/${token}`);
 
   return { success: true, message: msg };
 }
 
+/** In-flight guard so a double-tap / parallel request cannot run two check-ins at once. */
+const checkInsInFlight = new Set<string>();
+
 /**
- * Autonomous Swimmer Self-Check-in via Geofencing
- * Validates GPS coordinates, accuracy, freshness, and Colombo time window on the server.
+ * Step 1 of a check-in: the swimmer asks the server for a short-lived, single-use challenge.
+ * Requires the swimmer's PIN-login session.
+ */
+export async function issueCheckinChallengeAction(token: string, sessionId: string) {
+  await DataStore.syncFromSupabase({ maxAgeMs: SWIMMER_SYNC_MAX_AGE_MS });
+
+  const auth = await authenticateSwimmer(token);
+  if (!auth.ok) {
+    return { success: false as const, error: auth.error, needsLogin: auth.needsLogin };
+  }
+  const swimmer = auth.swimmer;
+
+  const rate = checkinChallengeRateLimiter.check(`chal_${swimmer.id}`);
+  if (!rate.allowed) {
+    return {
+      success: false as const,
+      error: `Too many attempts. Please wait ${rate.retryAfterSeconds} seconds.`,
+    };
+  }
+  checkinChallengeRateLimiter.recordFailure(`chal_${swimmer.id}`);
+
+  if (!(await SupabaseDB.refreshSessionAndAttendance(sessionId, swimmer.id))) {
+    return {
+      success: false as const,
+      error: "Could not verify the session right now. Please try again.",
+    };
+  }
+
+  const session = DataStore.getSessionById(sessionId);
+  if (!session) {
+    return { success: false as const, error: "Swimming practice session not found." };
+  }
+  const blocked = sessionBlockedReason(session);
+  if (blocked) return { success: false as const, error: blocked };
+
+  // Anti-buddy-punching: reject early if this device already checked in a different swimmer for this session
+  try {
+    const devCookie = (await cookies()).get(DEVICE_CHECKIN_COOKIE_NAME)?.value;
+    const boundSwimmer = getDeviceBoundSwimmer(devCookie, sessionId);
+    if (boundSwimmer && boundSwimmer !== swimmer.id) {
+      return {
+        success: false as const,
+        error:
+          "This phone was already used to check in another swimmer for this practice. Ask the coach to mark your attendance.",
+      };
+    }
+  } catch {
+    // cookies() fallback
+  }
+
+  const row = DataStore.getSessionAttendance(sessionId).find((a) => a.swimmer_id === swimmer.id);
+  return {
+    success: true as const,
+    challenge: issueCheckinChallenge(swimmer.id, sessionId, attendanceStateStamp(row)),
+    requiresPin: DataStore.hasSwimmerPin(swimmer.id),
+  };
+}
+
+/**
+ * Step 2: Autonomous Swimmer Self-Check-in via Geofencing.
+ * Validates the challenge, 4-digit PIN (when configured), anti-buddy-punching device lock,
+ * GPS coordinates, accuracy, freshness and Colombo time window on the server.
+ * The client is never trusted: there is no bypass flag, and the position age is
+ * measured relative to the server clock (so phones with a wrong clock still work).
  */
 export async function selfCheckInWithGeofenceAction(
   token: string,
@@ -112,101 +291,216 @@ export async function selfCheckInWithGeofenceAction(
     latitude: number;
     longitude: number;
     accuracy: number;
-    timestamp: number;
+    /** How old the GPS reading is on the device, in ms (Date.now() - position.timestamp). */
+    positionAgeMs: number;
   },
-  devBypass = false
+  challenge: string,
+  pin?: string
 ) {
-  const swimmer = DataStore.getSwimmerByToken(token);
-  if (!swimmer) {
-    return { success: false, error: "Invalid swimmer pass token." };
+  const lockKey = `${token}:${sessionId}`;
+  if (checkInsInFlight.has(lockKey)) {
+    return { success: false, error: "Your check-in is already being processed." };
   }
+  checkInsInFlight.add(lockKey);
 
-  const session = DataStore.getSessionById(sessionId);
-  if (!session) {
-    return { success: false, error: "Swimming practice session not found." };
-  }
+  try {
+    await DataStore.syncFromSupabase({ maxAgeMs: SWIMMER_SYNC_MAX_AGE_MS });
 
-  if (session.status === "cancelled") {
-    return { success: false, error: "This swimming practice has been cancelled." };
-  }
+    const auth = await authenticateSwimmer(token);
+    if (!auth.ok) return { success: false, error: auth.error, needsLogin: auth.needsLogin };
+    const swimmer = auth.swimmer;
 
-  if (session.is_finalized) {
+    const rateKey = `checkin_${swimmer.id}`;
+    const rate = checkinAttemptRateLimiter.check(rateKey);
+    if (!rate.allowed) {
+      return {
+        success: false,
+        error: `Too many check-in attempts. Please wait ${rate.retryAfterSeconds} seconds.`,
+      };
+    }
+    checkinAttemptRateLimiter.recordFailure(rateKey);
+
+    // Decide on CURRENT data: session (finalized? cancelled?) + own attendance row
+    if (!(await SupabaseDB.refreshSessionAndAttendance(sessionId, swimmer.id))) {
+      return { success: false, error: "Could not verify the session right now. Please try again." };
+    }
+
+    const session = DataStore.getSessionById(sessionId);
+    if (!session) {
+      return { success: false, error: "Swimming practice session not found." };
+    }
+    const blocked = sessionBlockedReason(session);
+    if (blocked) return { success: false, error: blocked };
+
+    // Anti-buddy-punching: 1 phone = 1 swimmer per practice session
+    try {
+      const devCookie = (await cookies()).get(DEVICE_CHECKIN_COOKIE_NAME)?.value;
+      const boundSwimmer = getDeviceBoundSwimmer(devCookie, sessionId);
+      if (boundSwimmer && boundSwimmer !== swimmer.id) {
+        return {
+          success: false,
+          error:
+            "This phone was already used to check in another swimmer for this practice. Ask the coach to mark your attendance.",
+        };
+      }
+    } catch {
+      // cookies() fallback
+    }
+
+    // Buddy check-in protection: require the swimmer's personal 4-digit PIN at check-in time
+    const storedPinHash = DataStore.getSwimmerPinHash(swimmer.id);
+    if (storedPinHash) {
+      const globalPinKey = `pin_global_${swimmer.id}`;
+      const globalPinCheck = swimmerPinGlobalRateLimiter.check(globalPinKey);
+      if (!globalPinCheck.allowed) {
+        return {
+          success: false,
+          error: `Too many failed PIN attempts. Try again in ${Math.ceil(globalPinCheck.retryAfterSeconds / 60)} minutes.`,
+        };
+      }
+      const cleanPin = (pin || "").trim();
+      if (!cleanPin) {
+        return {
+          success: false,
+          needsPin: true,
+          error: "Please enter your 4-digit PIN to confirm your check-in.",
+        };
+      }
+      if (!verifySwimmerPinSecure(swimmer.id, cleanPin, storedPinHash)) {
+        swimmerPinGlobalRateLimiter.recordFailure(globalPinKey);
+        return {
+          success: false,
+          needsPin: true,
+          error: "Incorrect 4-digit PIN. Please try again.",
+        };
+      }
+      swimmerPinGlobalRateLimiter.reset(globalPinKey);
+    }
+
+    const currentRow = DataStore.getSessionAttendance(sessionId).find(
+      (a) => a.swimmer_id === swimmer.id
+    );
+
+    const challengeCheck = verifyCheckinChallenge(
+      challenge,
+      swimmer.id,
+      sessionId,
+      attendanceStateStamp(currentRow)
+    );
+    if (!challengeCheck.ok) {
+      return { success: false, error: challengeCheck.error };
+    }
+
+    const policy = DataStore.getAttendancePolicy();
+    const positionAgeMs = Number(coords?.positionAgeMs);
+    const validation = validateGeofenceCheckin({
+      userLat: Number(coords?.latitude),
+      userLng: Number(coords?.longitude),
+      accuracy: Number(coords?.accuracy),
+      clientTimestamp: Number.isFinite(positionAgeMs) ? Date.now() - Math.max(0, positionAgeMs) : NaN,
+      session,
+      lateThresholdMinutes: policy.lateThresholdMinutes,
+    });
+
+    if (!validation.isValid) {
+      return {
+        success: false,
+        error: validation.error || "Geofence check-in validation failed.",
+        distanceMeters: validation.distanceMeters,
+        radiusMeters: validation.radiusMeters,
+      };
+    }
+
+    // Log client IP for anti-proxy audit trail
+    let clientIp = "127.0.0.1";
+    try {
+      const reqHeaders = await headers();
+      clientIp = reqHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+    } catch {
+      // headers() graceful fallback
+    }
+
+    const auditReason = `${validation.reason} [IP: ${clientIp}]`;
+
+    // ---- Atomic section: no `await` between the duplicate check and the write ----
+    const previous = DataStore.getSessionAttendance(sessionId).find(
+      (a) => a.swimmer_id === swimmer.id
+    );
+    if (previous && (previous.status === "present" || previous.status === "late")) {
+      return {
+        success: false,
+        error: `You have already checked in as ${previous.status.toUpperCase()}!`,
+      };
+    }
+    if (!consumeCheckinChallenge(challengeCheck.nonce)) {
+      return { success: false, error: "This check-in request was already used. Please try again." };
+    }
+    const previousSnapshot = previous ? { ...previous, swimmer: undefined } : null;
+
+    const result = DataStore.checkInSwimmerWithGeofence(
+      swimmer.id,
+      sessionId,
+      validation.status,
+      validation.distanceMeters,
+      coords.accuracy,
+      auditReason,
+      validation.note
+    );
+    // ------------------------------------------------------------------------------
+
+    const persisted = await SupabaseDB.upsertAttendance(
+      result.record,
+      swimmer.id,
+      auditReason,
+      result.auditLog.old_status
+    );
+    if (!persisted) {
+      // Never tell a swimmer they are checked in if the database does not have it
+      DataStore.revertAttendanceChange(sessionId, swimmer.id, previousSnapshot, result.auditLog.id);
+      return {
+        success: false,
+        error: "We could not save your check-in. Please check your connection and try again.",
+      };
+    }
+
+    checkinAttemptRateLimiter.reset(rateKey);
+
+    // Bind this browser/phone to this swimmer for this practice so it cannot check in a second swimmer
+    try {
+      const cookieStore = await cookies();
+      cookieStore.set(
+        DEVICE_CHECKIN_COOKIE_NAME,
+        createDeviceCheckinToken(sessionId, swimmer.id),
+        {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: Math.floor(DEVICE_CHECKIN_TTL_MS / 1000),
+        }
+      );
+    } catch {
+      // cookies() fallback in non-request contexts
+    }
+
+    revalidatePath(`/portal/${token}`);
+    revalidatePath("/attendance");
+    revalidatePath(`/sessions/${sessionId}`);
+    revalidatePath("/dashboard");
+
     return {
-      success: false,
-      error: "Attendance for this session has already been finalized by the coach.",
-    };
-  }
-
-  // Prevent duplicate self-checkins
-  const existingAttendance = DataStore.getSessionAttendance(sessionId);
-  const myRecord = existingAttendance.find((a) => a.swimmer_id === swimmer.id);
-  if (myRecord && (myRecord.status === "present" || myRecord.status === "late")) {
-    return {
-      success: false,
-      error: `You have already checked in as ${myRecord.status.toUpperCase()}!`,
-    };
-  }
-
-  // Server-Side Geofence & Guardrail Verification (dev bypass strictly forbidden in production)
-  const isDev = process.env.NODE_ENV !== "production" && devBypass;
-  const validation = validateGeofenceCheckin({
-    userLat: coords.latitude,
-    userLng: coords.longitude,
-    accuracy: coords.accuracy,
-    clientTimestamp: coords.timestamp,
-    session,
-    bypassTimeWindowForDev: isDev,
-  });
-
-  if (!validation.isValid) {
-    return {
-      success: false,
-      error: validation.error || "Geofence check-in validation failed.",
+      success: true,
+      // Never ship the full swimmer object (it carries the pass token) back to the browser
+      record: { ...result.record, swimmer: undefined },
+      status: validation.status,
+      isLate: validation.isLate,
+      minutesLate: validation.minutesLate,
       distanceMeters: validation.distanceMeters,
       radiusMeters: validation.radiusMeters,
     };
+  } finally {
+    checkInsInFlight.delete(lockKey);
   }
-
-  // Log client IP for anti-proxy audit trail
-  let clientIp = "127.0.0.1";
-  try {
-    const reqHeaders = await headers();
-    clientIp = reqHeaders.get("x-forwarded-for")?.split(",")[0] || "127.0.0.1";
-  } catch {
-    // headers() graceful fallback
-  }
-
-  const reason = `${validation.reason} [IP: ${clientIp}]`;
-
-  // Update DataStore
-  const result = DataStore.checkInSwimmerWithGeofence(
-    swimmer.id,
-    sessionId,
-    validation.status,
-    validation.distanceMeters,
-    coords.accuracy,
-    reason
-  );
-
-  // Sync to Supabase
-  if (result.record) {
-    await SupabaseDB.upsertAttendance(result.record, swimmer.id, reason);
-  }
-
-  revalidatePath(`/portal/${token}`);
-  revalidatePath("/attendance");
-  revalidatePath(`/sessions/${sessionId}`);
-  revalidatePath("/dashboard");
-
-  return {
-    success: true,
-    record: result.record,
-    status: validation.status,
-    isLate: validation.isLate,
-    minutesLate: validation.minutesLate,
-    distanceMeters: validation.distanceMeters,
-    radiusMeters: validation.radiusMeters,
-  };
 }
 
 /**
@@ -276,11 +570,20 @@ export async function loginSwimmerWithPinAction(swimmerId: string, pin: string) 
   }
 
   const rateLimitKey = `pin_${swimmerId}_${clientIp}`;
+  const globalKey = `pin_global_${swimmerId}`;
   const rateCheck = swimmerPinRateLimiter.check(rateLimitKey);
   if (!rateCheck.allowed) {
     return {
       success: false,
       error: `Too many failed PIN attempts. Locked out for ${rateCheck.retryAfterSeconds} seconds.`,
+    };
+  }
+  // A 4-digit PIN has only 10,000 combinations: also cap failures per swimmer across ALL IPs
+  const globalCheck = swimmerPinGlobalRateLimiter.check(globalKey);
+  if (!globalCheck.allowed) {
+    return {
+      success: false,
+      error: `Too many failed attempts on this profile. Try again in ${Math.ceil(globalCheck.retryAfterSeconds / 60)} minutes.`,
     };
   }
 
@@ -298,6 +601,7 @@ export async function loginSwimmerWithPinAction(swimmerId: string, pin: string) 
 
   if (!isValid) {
     swimmerPinRateLimiter.recordFailure(rateLimitKey);
+    swimmerPinGlobalRateLimiter.recordFailure(globalKey);
     const checkAfter = swimmerPinRateLimiter.check(rateLimitKey);
     const remaining = checkAfter.remainingAttempts;
     return {
@@ -311,8 +615,12 @@ export async function loginSwimmerWithPinAction(swimmerId: string, pin: string) 
 
   // Success: reset rate limit
   swimmerPinRateLimiter.reset(rateLimitKey);
+  swimmerPinGlobalRateLimiter.reset(globalKey);
 
-  const token = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
+  const token = await ensureStrongSwimmerToken(swimmer.id);
+  if (!token) {
+    return { success: false, error: "Could not create your secure pass. Please try again." };
+  }
 
   const cookieStore = await cookies();
   cookieStore.set(SWIMMER_COOKIE_NAME, token, {
@@ -377,7 +685,10 @@ export async function setupSwimmerPinAction(
     (DataStore.getAppSettings()["swimmer_pins"]?.value as Record<string, unknown>) || {};
   await SupabaseDB.upsertAppSetting("swimmer_pins", pinsObj);
 
-  const token = swimmer.reminder_preferences?.opt_out_token || swimmer.id;
+  const token = await ensureStrongSwimmerToken(swimmer.id);
+  if (!token) {
+    return { success: false, error: "Could not create your secure pass. Please try again." };
+  }
 
   const cookieStore = await cookies();
   cookieStore.set(SWIMMER_COOKIE_NAME, token, {

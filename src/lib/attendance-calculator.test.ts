@@ -10,6 +10,7 @@ import {
   formatLateNote,
   parseLateInfo,
   isSessionUpcomingOrActive,
+  getMinutesUntilSessionStart,
 } from "./attendance-calculator";
 import { AttendanceStatus } from "@/types/database";
 
@@ -164,6 +165,17 @@ describe("Attendance Calculator", () => {
           status: "completed",
         })
       ).toBe(false);
+    });
+
+    it("computes minutes until session start in Asia/Colombo time", () => {
+      // 2026-11-14 06:00:00 Asia/Colombo == 2026-11-14T00:30:00Z
+      const refNow = new Date("2026-11-14T00:30:00Z");
+      expect(
+        getMinutesUntilSessionStart({ date: "2026-11-14", start_time: "07:00:00" }, refNow)
+      ).toBe(60);
+      expect(
+        getMinutesUntilSessionStart({ date: "2026-11-14", start_time: "05:45:00" }, refNow)
+      ).toBe(-15);
     });
   });
 });

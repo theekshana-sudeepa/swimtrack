@@ -6,6 +6,8 @@ import {
   Body,
   Container,
   Section,
+  Row,
+  Column,
   Heading,
   Text,
   Hr,
@@ -31,7 +33,7 @@ export default function SwimmerPassSetupEmail({
     <Html lang="en">
       <Head />
       <Preview>
-        Quick Setup: How to access your personal SwimTrack Pass & 4-digit security PIN 🏊
+        Important Update: How to use your 4-Digit PIN & Poolside GPS Check-In on SwimTrack 🏊
       </Preview>
       <Body style={mainStyle}>
         <Container style={containerStyle}>
@@ -43,87 +45,118 @@ export default function SwimmerPassSetupEmail({
 
           {/* Main Card */}
           <Section style={cardStyle}>
-            <Heading style={headingStyle}>Your Swimmer Pass is Live! 🏊</Heading>
+            <Section style={badgeWrapStyle}>
+              <Text style={badgeStyle}>📍 NEW: ON-LOCATION GPS CHECK-IN &amp; 4-DIGIT PIN</Text>
+            </Section>
+
+            <Heading as="h1" style={headingStyle}>
+              Your Swimmer Pass &amp; Poolside Check-In Guide 🏊
+            </Heading>
             <Text style={greetingStyle}>Hey {displayName},</Text>
             <Text style={paragraphStyle}>
-              SwimTrack now features a direct <strong>Swimmer Pass</strong> portal. You can now check
-              your attendance rate, active practice streaks, submit 1-tap RSVPs, and self-check in poolside!
+              We&apos;ve upgraded <strong>SwimTrack</strong> to keep squad attendance 100% fair and
+              accurate. <strong>Attendance can only be marked on location at the swimming pool</strong>{" "}
+              (or by the coach) — there is no check-in from home.
             </Text>
 
-            {/* Quick 3-Step Setup Box */}
+            {/* Quick 3-Step Setup Box (Table-based Row/Column for 100% Gmail/iOS/Android support) */}
             <Section style={guideBoxStyle}>
-              <Text style={guideHeadingStyle}>⚡ Quick 3-Step Setup Guide</Text>
+              <Text style={guideHeadingStyle}>⚡ How Your Swimmer Pass Works (3 Easy Steps)</Text>
 
-              <div style={stepRowStyle}>
-                <Text style={stepNumberStyle}>1</Text>
-                <div>
-                  <Text style={stepTitleStyle}>Tap &ldquo;Swimmer Pass&rdquo;</Text>
+              <Row style={stepRowStyle}>
+                <Column style={stepNumberColStyle}>
+                  <Text style={stepNumberStyle}>1</Text>
+                </Column>
+                <Column style={stepContentColStyle}>
+                  <Text style={stepTitleStyle}>Sign In &amp; Set Your Private 4-Digit PIN</Text>
                   <Text style={stepDescStyle}>
-                    Click the button below or tap the <strong>🏊 Swimmer Pass</strong> button in the top header on the SwimTrack website.
+                    Tap the button below, select <strong>{displayName}</strong> from the squad list,
+                    and create your personal 4-digit security PIN. Your phone will remember your pass
+                    automatically.
                   </Text>
-                </div>
-              </div>
+                </Column>
+              </Row>
 
-              <div style={stepRowStyle}>
-                <Text style={stepNumberStyle}>2</Text>
-                <div>
-                  <Text style={stepTitleStyle}>Select Your Name</Text>
+              <Row style={stepRowStyle}>
+                <Column style={stepNumberColStyle}>
+                  <Text style={stepNumberStyle}>2</Text>
+                </Column>
+                <Column style={stepContentColStyle}>
+                  <Text style={stepTitleStyle}>Check In Poolside with the GPS Radar</Text>
                   <Text style={stepDescStyle}>
-                    Find your profile from the squad list (e.g. <em>{displayName}</em>).
+                    When you arrive at the pool (within <strong>75m</strong>, from 30 mins before
+                    start), tap <strong>Turn On Radar</strong> &rarr; tap{" "}
+                    <strong>Mark Present</strong> &rarr; confirm your <strong>4-digit PIN</strong>.
+                    Arrivals more than 10 minutes after start are recorded as <em>Late</em>.
                   </Text>
-                </div>
-              </div>
+                </Column>
+              </Row>
 
-              <div style={stepRowStyle}>
-                <Text style={stepNumberStyle}>3</Text>
-                <div>
-                  <Text style={stepTitleStyle}>Create Your Private 4-Digit PIN</Text>
+              <Row style={{ marginBottom: "0" }}>
+                <Column style={stepNumberColStyle}>
+                  <Text style={stepNumberStyle}>3</Text>
+                </Column>
+                <Column style={stepContentColStyle}>
+                  <Text style={stepTitleStyle}>Can&apos;t Make It? Report an Excuse Early</Text>
                   <Text style={stepDescStyle}>
-                    Pick a 4-digit security PIN (e.g. 1234). Only you know this PIN, so other squad friends cannot enter your profile!
+                    Sick or have an exam? Tap{" "}
+                    <em>&ldquo;Can&apos;t make it? Report an excused absence&rdquo;</em> at least{" "}
+                    <strong>60 minutes before practice starts</strong> so the coach is notified and
+                    your streak stays protected.
                   </Text>
-                </div>
-              </div>
+                </Column>
+              </Row>
             </Section>
 
             {/* Action CTA Button */}
-            <Section style={{ textAlign: "center", margin: "28px 0 20px 0" }}>
+            <Section style={{ textAlign: "center", margin: "28px 0 22px 0" }}>
               <Link href={portalUrl} style={buttonStyle}>
-                Open Swimmer Pass & Set PIN 🏊 &rarr;
+                Open My Swimmer Pass &amp; Set 4-Digit PIN 🏊 &rarr;
               </Link>
               <Text style={tipTextStyle}>
-                💡 <strong>Device Persistence:</strong> Once you enter your PIN, your phone browser will remember you automatically so you won&apos;t have to re-enter it on every visit.
+                🔒 <strong>Anti-Buddy-Check-In Security:</strong> Each phone can only check in{" "}
+                <strong>one swimmer per practice session</strong>, and every check-in requires your
+                personal 4-digit PIN.
               </Text>
             </Section>
 
-            {/* Features Callout */}
+            {/* Rules Summary Card */}
             <Section style={featuresCardStyle}>
-              <Text style={featuresTitleStyle}>What You Can Do Inside Your Pass:</Text>
+              <Text style={featuresTitleStyle}>Poolside Check-In Rules at a Glance:</Text>
               <Text style={featureItemStyle}>
-                🔥 <strong>Attendance & Streak:</strong> See your personal attendance percentage, completed practices, and Polla risk meter.
+                📍 <strong>Location Verified:</strong> Must be physically within <strong>75m</strong>{" "}
+                of the pool complex with high-accuracy GPS enabled.
               </Text>
               <Text style={featureItemStyle}>
-                ✅ <strong>1-Tap RSVPs:</strong> Let the coach and friends know in advance if you&apos;re attending the next swimming practice.
+                ⏰ <strong>Check-In Window:</strong> Opens <strong>30 minutes before</strong>{" "}
+                practice starts; check-ins more than <strong>10 minutes after start</strong> count as
+                Late.
               </Text>
               <Text style={featureItemStyle}>
-                📍 <strong>Pool Radar Check-In:</strong> Autonomous GPS check-in when you arrive at the pool complex.
+                🩹 <strong>Excused Absences:</strong> Self-reported excuses close{" "}
+                <strong>60 minutes before</strong> session start. After that, message the coach
+                directly.
               </Text>
               <Text style={featureItemStyle}>
-                💬 <strong>Squad Chalkboard:</strong> Post banter, motivation, and pool notes for the team.
+                🔥 <strong>Streaks &amp; Squad Chalkboard:</strong> Track your attendance rate, active
+                streak, and post banter on the live Squad Chalkboard.
               </Text>
             </Section>
 
             {/* Home Screen Tip */}
             <Section style={pwaTipBoxStyle}>
-              <Text style={pwaTipTitleStyle}>📲 Add to Phone Home Screen (1-Tap App)</Text>
+              <Text style={pwaTipTitleStyle}>📲 Add to Your Phone Home Screen (1-Tap App)</Text>
               <Text style={pwaTipTextStyle}>
-                <strong>iPhone (Safari):</strong> Tap the <em>Share icon</em> (square with arrow) &rarr; tap <em>Add to Home Screen</em>.
+                <strong>iPhone (Safari):</strong> Tap the <em>Share icon</em> (square with arrow)
+                &rarr; tap <em>Add to Home Screen</em>.
                 <br />
-                <strong>Android (Chrome):</strong> Tap the <em>three dots menu</em> &rarr; tap <em>Install app</em> or <em>Add to Home Screen</em>.
+                <strong>Android (Chrome):</strong> Tap the <em>three dots menu</em> &rarr; tap{" "}
+                <em>Install app</em> or <em>Add to Home Screen</em>.
               </Text>
             </Section>
 
             <Text style={closingStyle}>
-              See you in lane 3! Don&apos;t forget your goggles, cap, and water bottle. 🌊
+              See you on the pool deck! Don&apos;t forget your goggles, cap, and water bottle. 🌊
             </Text>
           </Section>
 
@@ -150,16 +183,18 @@ export default function SwimmerPassSetupEmail({
   );
 }
 
-// Styles
+// Styles (100% inline & table-compatible for mobile/desktop email clients)
 const mainStyle: React.CSSProperties = {
   backgroundColor: "#f4f8fb",
   fontFamily:
     '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  padding: "24px 0",
+  padding: "20px 8px",
+  margin: 0,
 };
 
 const containerStyle: React.CSSProperties = {
   maxWidth: "600px",
+  width: "100%",
   margin: "0 auto",
   backgroundColor: "#ffffff",
   borderRadius: "16px",
@@ -170,7 +205,7 @@ const containerStyle: React.CSSProperties = {
 
 const headerStyle: React.CSSProperties = {
   backgroundColor: "#071B2B",
-  padding: "28px 32px",
+  padding: "26px 24px",
   textAlign: "center",
 };
 
@@ -183,35 +218,53 @@ const brandStyle: React.CSSProperties = {
 };
 
 const taglineStyle: React.CSSProperties = {
-  fontSize: "12px",
+  fontSize: "11px",
   color: "#8AA3B8",
-  letterSpacing: "1px",
+  letterSpacing: "1.2px",
   margin: "4px 0 0 0",
   textTransform: "uppercase",
 };
 
 const cardStyle: React.CSSProperties = {
-  padding: "32px 32px 24px 32px",
+  padding: "28px 24px 24px 24px",
+};
+
+const badgeWrapStyle: React.CSSProperties = {
+  marginBottom: "12px",
+};
+
+const badgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  backgroundColor: "#e0f2fe",
+  color: "#0369a1",
+  border: "1px solid #7dd3fc",
+  borderRadius: "999px",
+  padding: "4px 12px",
+  fontSize: "11px",
+  fontWeight: 800,
+  letterSpacing: "0.4px",
+  margin: 0,
 };
 
 const headingStyle: React.CSSProperties = {
   fontSize: "22px",
+  lineHeight: "28px",
   fontWeight: 800,
   color: "#071B2B",
-  margin: "0 0 16px 0",
+  margin: "0 0 14px 0",
 };
 
 const greetingStyle: React.CSSProperties = {
   fontSize: "16px",
   fontWeight: 700,
   color: "#173b54",
-  margin: "0 0 12px 0",
+  margin: "0 0 10px 0",
 };
 
 const paragraphStyle: React.CSSProperties = {
   fontSize: "14px",
   lineHeight: "22px",
-  color: "#475569",
+  color: "#334155",
   margin: "0 0 20px 0",
 };
 
@@ -219,49 +272,56 @@ const guideBoxStyle: React.CSSProperties = {
   backgroundColor: "#f0fdfa",
   border: "1px solid #99f6e4",
   borderRadius: "14px",
-  padding: "20px 20px 16px 20px",
+  padding: "18px 16px",
   marginBottom: "24px",
 };
 
 const guideHeadingStyle: React.CSSProperties = {
-  fontSize: "15px",
+  fontSize: "13px",
   fontWeight: 800,
   color: "#0f766e",
-  margin: "0 0 16px 0",
+  margin: "0 0 14px 0",
   textTransform: "uppercase",
   letterSpacing: "0.5px",
 };
 
 const stepRowStyle: React.CSSProperties = {
-  display: "flex",
   marginBottom: "14px",
-  alignItems: "flex-start",
+};
+
+const stepNumberColStyle: React.CSSProperties = {
+  width: "38px",
+  verticalAlign: "top",
+  paddingRight: "10px",
+};
+
+const stepContentColStyle: React.CSSProperties = {
+  verticalAlign: "top",
 };
 
 const stepNumberStyle: React.CSSProperties = {
   width: "28px",
   height: "28px",
-  backgroundColor: "#14b8a6",
+  backgroundColor: "#0d9488",
   color: "#ffffff",
   borderRadius: "50%",
   fontWeight: 800,
-  fontSize: "14px",
+  fontSize: "13px",
   lineHeight: "28px",
   textAlign: "center",
-  marginRight: "14px",
-  flexShrink: 0,
+  margin: 0,
 };
 
 const stepTitleStyle: React.CSSProperties = {
   fontSize: "14px",
   fontWeight: 700,
   color: "#134e4a",
-  margin: "0 0 2px 0",
+  margin: "0 0 3px 0",
 };
 
 const stepDescStyle: React.CSSProperties = {
-  fontSize: "12px",
-  lineHeight: "18px",
+  fontSize: "13px",
+  lineHeight: "19px",
   color: "#334155",
   margin: 0,
 };
@@ -269,22 +329,23 @@ const stepDescStyle: React.CSSProperties = {
 const buttonStyle: React.CSSProperties = {
   backgroundColor: "#22C7D8",
   color: "#071B2B",
-  padding: "14px 32px",
+  padding: "14px 26px",
   borderRadius: "12px",
   fontWeight: 800,
-  fontSize: "15px",
+  fontSize: "14px",
   textDecoration: "none",
   display: "inline-block",
   textAlign: "center",
+  boxSizing: "border-box",
   boxShadow: "0 4px 14px rgba(34, 199, 216, 0.35)",
 };
 
 const tipTextStyle: React.CSSProperties = {
-  fontSize: "11px",
-  lineHeight: "16px",
-  color: "#52758e",
+  fontSize: "12px",
+  lineHeight: "17px",
+  color: "#475569",
   marginTop: "12px",
-  maxWidth: "460px",
+  maxWidth: "480px",
   marginLeft: "auto",
   marginRight: "auto",
 };
@@ -293,12 +354,12 @@ const featuresCardStyle: React.CSSProperties = {
   backgroundColor: "#f8fafc",
   border: "1px solid #e2e8f0",
   borderRadius: "12px",
-  padding: "18px 20px",
-  marginBottom: "20px",
+  padding: "16px 18px",
+  marginBottom: "18px",
 };
 
 const featuresTitleStyle: React.CSSProperties = {
-  fontSize: "13px",
+  fontSize: "12px",
   fontWeight: 800,
   color: "#0f172a",
   margin: "0 0 10px 0",
@@ -317,8 +378,8 @@ const pwaTipBoxStyle: React.CSSProperties = {
   backgroundColor: "#f0f9ff",
   border: "1px solid #bae6fd",
   borderRadius: "12px",
-  padding: "14px 18px",
-  marginBottom: "20px",
+  padding: "14px 16px",
+  marginBottom: "18px",
 };
 
 const pwaTipTitleStyle: React.CSSProperties = {
@@ -339,12 +400,12 @@ const closingStyle: React.CSSProperties = {
   fontSize: "14px",
   lineHeight: "20px",
   color: "#475569",
-  margin: "16px 0 0 0",
+  margin: "12px 0 0 0",
 };
 
 const footerStyle: React.CSSProperties = {
   backgroundColor: "#eef6fc",
-  padding: "20px 32px",
+  padding: "20px 24px",
   textAlign: "center",
 };
 
@@ -362,6 +423,7 @@ const linkStyle: React.CSSProperties = {
 
 const hrStyle: React.CSSProperties = {
   borderColor: "#D1EBF3",
+  borderStyle: "solid",
   margin: "16px 0 12px 0",
 };
 
@@ -370,4 +432,3 @@ const copyrightStyle: React.CSSProperties = {
   color: "#7e9cb0",
   margin: 0,
 };
-

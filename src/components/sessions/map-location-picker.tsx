@@ -12,6 +12,7 @@ import {
   Navigation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DEFAULT_GEOFENCE_RADIUS_METERS } from "@/lib/geo-fence";
 import { toast } from "sonner";
 import type { Map as LeafletMap, Marker as LeafletMarker, Circle as LeafletCircle } from "leaflet";
 
@@ -40,14 +41,14 @@ const PRESET_VENUES = [
     shortName: "Bandaranayake Pool (Gampaha)",
     latitude: 7.0917,
     longitude: 79.9996,
-    radiusMeters: 30,
+    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
   },
   {
     name: "Ranaviru Apparels Swimming Pool, Yakkala",
     shortName: "Ranaviru Apparels Pool (Yakkala)",
     latitude: 7.0785,
     longitude: 80.036,
-    radiusMeters: 30,
+    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
   },
 ];
 
@@ -65,7 +66,7 @@ export function MapLocationPickerModal({
   // Initial state: fallback to Bandaranayake if not supplied
   const defaultLat = initialLocation?.latitude ?? 7.0917;
   const defaultLng = initialLocation?.longitude ?? 79.9996;
-  const defaultRadius = initialLocation?.radiusMeters ?? 30;
+  const defaultRadius = initialLocation?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS;
   const defaultName =
     initialLocation?.name || "Bandaranayake College Swimming Pool Complex, Gampaha";
 
@@ -128,7 +129,7 @@ export function MapLocationPickerModal({
       }).addTo(map);
       markerRef.current = marker;
 
-      // Draw 30m Geofence Circle
+      // Draw Geofence Circle
       const circle = L.circle([lat, lng], {
         radius: radius,
         color: "#22C7D8",
@@ -396,7 +397,7 @@ export function MapLocationPickerModal({
                 <span className="text-aqua font-bold">{radius}m</span>
               </label>
               <div className="flex items-center gap-1.5">
-                {[30, 50, 80].map((r) => (
+                {[50, DEFAULT_GEOFENCE_RADIUS_METERS, 100].map((r) => (
                   <button
                     key={r}
                     type="button"
