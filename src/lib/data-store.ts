@@ -23,6 +23,7 @@ import {
   calculateStreaks,
   parseLateInfo,
   calculateMinutesLate,
+  isSessionUpcomingOrActive,
 } from "./attendance-calculator";
 
 // In-memory persistent state (persists across requests during server runtime)
@@ -420,19 +421,14 @@ export const DataStore = {
   },
 
   getNextUpcomingSession(): SwimSession | null {
-    const nowStr = new Date().toISOString().split("T")[0];
     const upcoming = store.sessions
-      .filter((s) => s.status === "scheduled" && s.date >= nowStr)
+      .filter((s) => isSessionUpcomingOrActive(s))
       .sort((a, b) => a.date.localeCompare(b.date) || a.start_time.localeCompare(b.start_time));
 
     if (upcoming.length > 0) {
       return this.getSessionById(upcoming[0].id);
     }
-    // Fallback to most recent scheduled
-    const anyScheduled = store.sessions
-      .filter((s) => s.status === "scheduled")
-      .sort((a, b) => a.date.localeCompare(b.date));
-    return anyScheduled.length > 0 ? this.getSessionById(anyScheduled[0].id) : null;
+    return null;
   },
 
   createSession(data: {
@@ -1136,21 +1132,22 @@ export const DataStore = {
       (a) => a.swimmer_id === swimmerId && a.session_id === sessionId
     );
 
+    const nowIso = new Date().toISOString();
+
     if (!record) {
-      if (status === "declined") {
-        record = {
-          id: `att-${sessionId}-${swimmerId}`,
-          session_id: sessionId,
-          swimmer_id: swimmerId,
-          status: "excused",
-          notes: `RSVP: Excused - ${reason || "Cannot attend"}`,
-          marked_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        store.attendance.push(record);
-      } else {
-        return null;
-      }
+      record = {
+        id: `att-${sessionId}-${swimmerId}`,
+        session_id: sessionId,
+        swimmer_id: swimmerId,
+        status: status === "declined" ? "excused" : "not_marked",
+        notes:
+          status === "declined"
+            ? `RSVP: Excused - ${reason || "Cannot attend"}`
+            : "RSVP: Confirmed Attending 🏊",
+        marked_at: nowIso,
+        updated_at: nowIso,
+      };
+      store.attendance.push(record);
     } else {
       if (status === "declined") {
         record.status = "excused";
@@ -1159,9 +1156,9 @@ export const DataStore = {
         if (record.status === "excused" || record.status === "absent") {
           record.status = "not_marked";
         }
-        record.notes = undefined;
+        record.notes = "RSVP: Confirmed Attending 🏊";
       }
-      record.updated_at = new Date().toISOString();
+      record.updated_at = nowIso;
     }
 
     return record;

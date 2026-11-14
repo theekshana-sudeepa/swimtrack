@@ -170,6 +170,44 @@ describe("DataStore In-Memory Repository", () => {
     expect(remainingAudit.length).toBe(0);
   });
 
+  it("does not return expired past sessions as upcoming and correctly records attending RSVP", () => {
+    // In initial demo data, sessions are scheduled on 2026-11-07 and 2026-11-11
+    // Which are in the past relative to current local date
+    const swimmer = DataStore.getSwimmers({ status: "active" })[0];
+
+    // Create a real future session
+    const futureSession = DataStore.createSession({
+      title: "Tomorrow Sunrise Practice",
+      date: "2099-12-01",
+      start_time: "06:00:00",
+      end_time: "07:30:00",
+      location: "Olympic Pool Complex",
+    });
+
+    const nextUpcoming = DataStore.getNextUpcomingSession();
+    expect(nextUpcoming).not.toBeNull();
+    expect(nextUpcoming?.id).toBe(futureSession.id);
+
+    // Swimmer taps "I'm Coming Bro!" (status: "attending")
+    const rsvpRecord = DataStore.submitSwimmerRsvp(
+      swimmer.id,
+      futureSession.id,
+      "attending"
+    );
+
+    expect(rsvpRecord).not.toBeNull();
+    expect(rsvpRecord?.status).toBe("not_marked");
+    expect(rsvpRecord?.notes).toBe("RSVP: Confirmed Attending 🏊");
+
+    // Clean up future session
+    DataStore.deleteSession(futureSession.id);
+
+    // Now all sessions in store are past (from early November 2026)
+    // getNextUpcomingSession MUST return null instead of falling back to stale past sessions
+    const expiredNext = DataStore.getNextUpcomingSession();
+    expect(expiredNext).toBeNull();
+  });
+
   describe("Option 1: Swimmer Security PIN System", () => {
     it("hashes and securely verifies swimmer 4-digit PINs", () => {
       const swimmerId = "test-swimmer-id-123";

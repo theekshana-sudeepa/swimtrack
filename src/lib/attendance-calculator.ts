@@ -193,6 +193,46 @@ export function calculateArrivalTime(
 }
 
 /**
+ * Returns the current date in Sri Lanka (Asia/Colombo timezone) in YYYY-MM-DD format.
+ */
+export function getCurrentColomboDate(): string {
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Colombo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    return formatter.format(now);
+  } catch {
+    return new Date().toISOString().split("T")[0];
+  }
+}
+
+/**
+ * Checks whether a session is upcoming in the future or currently active right now.
+ * A session is considered expired/past if:
+ * 1. Its scheduled date is before today (day has passed), OR
+ * 2. Its scheduled date is today but its end_time has already elapsed.
+ */
+export function isSessionUpcomingOrActive(session: {
+  date: string;
+  end_time: string;
+  status: string;
+}): boolean {
+  if (session.status !== "scheduled") return false;
+  const today = getCurrentColomboDate();
+  if (session.date > today) return true;
+  if (session.date < today) return false;
+
+  // Session is today: check if end_time has passed
+  const { totalMinutes } = getCurrentColomboTime();
+  const sessionEndMinutes = parseTimeToMinutes(session.end_time);
+  return sessionEndMinutes >= totalMinutes;
+}
+
+/**
  * Returns the current time in Sri Lanka (Asia/Colombo timezone).
  */
 export function getCurrentColomboTime(): { time24: string; time12: string; totalMinutes: number } {

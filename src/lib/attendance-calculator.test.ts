@@ -9,6 +9,7 @@ import {
   calculateArrivalTime,
   formatLateNote,
   parseLateInfo,
+  isSessionUpcomingOrActive,
 } from "./attendance-calculator";
 import { AttendanceStatus } from "@/types/database";
 
@@ -134,6 +135,35 @@ describe("Attendance Calculator", () => {
 
       const parsed4 = parseLateInfo("20 mins late");
       expect(parsed4?.minutesLate).toBe(20);
+    });
+
+    it("evaluates whether a session is upcoming or past based on date and time", () => {
+      // Past session: date is before today
+      expect(
+        isSessionUpcomingOrActive({
+          date: "2026-11-10",
+          end_time: "19:45:00",
+          status: "scheduled",
+        })
+      ).toBe(false);
+
+      // Future session: date is next year or distant future
+      expect(
+        isSessionUpcomingOrActive({
+          date: "2099-01-01",
+          end_time: "08:00:00",
+          status: "scheduled",
+        })
+      ).toBe(true);
+
+      // Cancelled or completed sessions are never upcoming
+      expect(
+        isSessionUpcomingOrActive({
+          date: "2099-01-01",
+          end_time: "08:00:00",
+          status: "completed",
+        })
+      ).toBe(false);
     });
   });
 });
