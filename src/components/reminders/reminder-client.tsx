@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   Mail,
   Send,
@@ -39,11 +40,40 @@ export function ReminderClient({
   swimmers = [],
   initialSelectedSessionId,
 }: ReminderClientProps) {
-  const [selectedSessionId, setSelectedSessionId] = React.useState<string>(
-    initialSelectedSessionId || (sessions.length > 0 ? sessions[0].id : "")
+  // Only show active, non-completed, non-finalized scheduled sessions for reminder dispatch
+  const remindableSessions = React.useMemo(
+    () =>
+      (sessions || [])
+        .filter((s) => s.status === "scheduled" && !s.is_finalized)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.start_time.localeCompare(b.start_time)),
+    [sessions]
   );
 
-  const selectedSession = sessions.find((s) => s.id === selectedSessionId) || sessions[0];
+  const [selectedSessionId, setSelectedSessionId] = React.useState<string>(() => {
+    if (
+      initialSelectedSessionId &&
+      remindableSessions.some((s) => s.id === initialSelectedSessionId)
+    ) {
+      return initialSelectedSessionId;
+    }
+    return remindableSessions.length > 0 ? remindableSessions[0].id : "";
+  });
+
+  React.useEffect(() => {
+    if (
+      remindableSessions.length > 0 &&
+      !remindableSessions.some((s) => s.id === selectedSessionId)
+    ) {
+      setSelectedSessionId(remindableSessions[0].id);
+    } else if (remindableSessions.length === 0 && selectedSessionId !== "") {
+      setSelectedSessionId("");
+    }
+  }, [remindableSessions, selectedSessionId]);
+
+  const selectedSession =
+    remindableSessions.find((s) => s.id === selectedSessionId) ||
+    remindableSessions[0] ||
+    null;
 
   const [customMessage, setCustomMessage] = React.useState(
     "Don't forget your swim session tomorrow! Bring your goggles, towel, and water bottle."
@@ -220,18 +250,23 @@ export function ReminderClient({
             <select
               aria-label="Select Target Swimming Session for Reminders"
               value={selectedSessionId}
+              disabled={remindableSessions.length === 0}
               onChange={(e) => setSelectedSessionId(e.target.value)}
-              className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
+              className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua disabled:opacity-60"
             >
-              {sessions.map((sess) => (
-                <option key={sess.id} value={sess.id}>
-                  {sess.date} — {sess.title} ({sess.status})
-                </option>
-              ))}
+              {remindableSessions.length > 0 ? (
+                remindableSessions.map((sess) => (
+                  <option key={sess.id} value={sess.id}>
+                    {sess.date} — {sess.title} ({formatTime(sess.start_time)})
+                  </option>
+                ))
+              ) : (
+                <option value="">No upcoming scheduled sessions available</option>
+              )}
             </select>
           </div>
 
-          {selectedSession && (
+          {selectedSession ? (
             <div className="p-3.5 rounded-xl border border-border bg-secondary/30 text-xs space-y-1">
               <div className="font-bold text-foreground">{selectedSession.title}</div>
               <div className="text-muted-foreground">
@@ -255,6 +290,14 @@ export function ReminderClient({
                 </div>
               )}
             </div>
+          ) : (
+            <div className="p-3.5 rounded-xl border border-border bg-secondary/20 text-xs text-muted-foreground">
+              All past sessions are completed. Schedule a new session in{" "}
+              <Link href="/sessions" className="text-aqua font-semibold hover:underline">
+                Sessions &amp; Schedule
+              </Link>{" "}
+              to dispatch reminders.
+            </div>
           )}
 
           <div>
@@ -274,7 +317,7 @@ export function ReminderClient({
             <button
               type="button"
               onClick={() => handleSendReminders(false)}
-              disabled={isSending}
+              disabled={isSending || !selectedSession}
               className="px-4 py-2.5 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 font-bold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95 disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
@@ -284,8 +327,8 @@ export function ReminderClient({
             <button
               type="button"
               onClick={() => handleSendReminders(true)}
-              disabled={isSending}
-              className="px-3.5 py-2.5 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-foreground font-semibold text-xs flex items-center gap-1.5 transition-all"
+              disabled={isSending || !selectedSession}
+              className="px-3.5 py-2.5 rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-foreground font-semibold text-xs flex items-center gap-1.5 transition-all disabled:opacity-50"
             >
               <Eye className="w-3.5 h-3.5 text-muted-foreground" />
               <span>Dry Run</span>

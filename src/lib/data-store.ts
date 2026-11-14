@@ -25,6 +25,7 @@ import {
   calculateMinutesLate,
   isSessionUpcomingOrActive,
 } from "./attendance-calculator";
+import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "./geo-fence";
 import { generateSwimmerToken, isStrongSwimmerToken, timingSafeMatch } from "./security";
 
 /** Coach-configurable attendance rules (Settings -> General). */
@@ -500,6 +501,18 @@ export const DataStore = {
     geofence_radius?: number | null;
   }): SwimSession {
     const newId = crypto.randomUUID();
+    const matchedVenue = matchKnownVenueByName(data.location);
+    const resolvedLat =
+      data.latitude != null ? data.latitude : matchedVenue ? matchedVenue.latitude : null;
+    const resolvedLng =
+      data.longitude != null ? data.longitude : matchedVenue ? matchedVenue.longitude : null;
+    const resolvedRadius =
+      data.geofence_radius != null
+        ? data.geofence_radius
+        : matchedVenue
+        ? matchedVenue.radiusMeters
+        : DEFAULT_GEOFENCE_RADIUS_METERS;
+
     const newSession: SwimSession = {
       id: newId,
       series_id: data.series_id || null,
@@ -508,9 +521,9 @@ export const DataStore = {
       start_time: data.start_time,
       end_time: data.end_time,
       location: data.location,
-      latitude: data.latitude != null ? data.latitude : null,
-      longitude: data.longitude != null ? data.longitude : null,
-      geofence_radius: data.geofence_radius != null ? data.geofence_radius : 30,
+      latitude: resolvedLat,
+      longitude: resolvedLng,
+      geofence_radius: resolvedRadius,
       notes: data.notes || null,
       status: "scheduled",
       is_finalized: false,
@@ -519,6 +532,15 @@ export const DataStore = {
     };
 
     store.sessions.push(newSession);
+
+    if (resolvedLat != null && resolvedLng != null) {
+      this.setSessionGeofenceOverride(newId, {
+        location: data.location,
+        latitude: resolvedLat,
+        longitude: resolvedLng,
+        geofence_radius: resolvedRadius,
+      });
+    }
 
     // Snapshot active swimmers into attendance register
     const activeSwimmers = store.swimmers.filter((s) => s.status === "active");
@@ -538,12 +560,64 @@ export const DataStore = {
     const idx = store.sessions.findIndex((s) => s.id === id);
     if (idx === -1) return null;
 
-    store.sessions[idx] = {
+    const updated: SwimSession = {
       ...store.sessions[idx],
       ...data,
       updated_at: new Date().toISOString(),
     };
+    store.sessions[idx] = updated;
+
+    if (updated.latitude != null && updated.longitude != null) {
+      this.setSessionGeofenceOverride(id, {
+        location: updated.location,
+        latitude: updated.latitude,
+        longitude: updated.longitude,
+        geofence_radius: updated.geofence_radius ?? DEFAULT_GEOFENCE_RADIUS_METERS,
+      });
+    }
+
     return this.getSessionById(id);
+  },
+
+  setSessionGeofenceOverride(
+    sessionId: string,
+    geo: {
+      location: string;
+      latitude: number;
+      longitude: number;
+      geofence_radius: number;
+    }
+  ): void {
+    const existing =
+      (store.settings["session_geofences"]?.value as Record<string, unknown> | undefined) || {};
+    store.settings["session_geofences"] = {
+      key: "session_geofences",
+      value: {
+        ...existing,
+        [sessionId]: geo,
+      },
+      updated_at: new Date().toISOString(),
+    };
+  },
+
+  getSessionGeofenceOverride(sessionId: string): {
+    location?: string;
+    latitude?: number;
+    longitude?: number;
+    geofence_radius?: number;
+  } | null {
+    const map = store.settings["session_geofences"]?.value as
+      | Record<
+          string,
+          {
+            location?: string;
+            latitude?: number;
+            longitude?: number;
+            geofence_radius?: number;
+          }
+        >
+      | undefined;
+    return map?.[sessionId] || null;
   },
 
   cancelSession(id: string): SwimSession | null {

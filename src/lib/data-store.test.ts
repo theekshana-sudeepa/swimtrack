@@ -385,6 +385,40 @@ describe("DataStore In-Memory Repository", () => {
       limiter.reset(key);
       expect(limiter.check(key).allowed).toBe(true);
     });
+
+    it("resolves known pool coordinates and persists custom pool location updates", () => {
+      const session = DataStore.createSession({
+        title: "Pool Change Test",
+        date: "2099-12-10",
+        start_time: "15:00:00",
+        end_time: "16:45:00",
+        location: "Ranaviru Apparels Swimming Pool, Yakkala",
+      });
+
+      expect(session.latitude).toBeCloseTo(7.0785, 4);
+      expect(session.longitude).toBeCloseTo(80.036, 3);
+      expect(session.geofence_radius).toBe(75);
+
+      const updated = DataStore.updateSession(session.id, {
+        location: "Custom Pinned Pool",
+        latitude: 6.9271,
+        longitude: 79.8612,
+        geofence_radius: 100,
+      });
+
+      expect(updated?.location).toBe("Custom Pinned Pool");
+      expect(updated?.latitude).toBeCloseTo(6.9271, 4);
+      expect(updated?.longitude).toBeCloseTo(79.8612, 4);
+      expect(updated?.geofence_radius).toBe(100);
+
+      const override = DataStore.getSessionGeofenceOverride(session.id);
+      expect(override?.location).toBe("Custom Pinned Pool");
+      expect(override?.latitude).toBeCloseTo(6.9271, 4);
+      expect(override?.longitude).toBeCloseTo(79.8612, 4);
+      expect(override?.geofence_radius).toBe(100);
+
+      DataStore.deleteSession(session.id);
+    });
   });
 });
 

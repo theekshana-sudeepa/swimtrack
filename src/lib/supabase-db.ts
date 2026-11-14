@@ -1,6 +1,6 @@
 import { getSupabaseAdminClient } from "./supabase-client";
 import { DataStore } from "./data-store";
-import { DEFAULT_GEOFENCE_RADIUS_METERS } from "./geo-fence";
+import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "./geo-fence";
 import {
   Swimmer,
   SwimSession,
@@ -13,18 +13,49 @@ import {
 
 /** Maps a swim_sessions row to the app model (shared by full sync and targeted refresh). */
 function mapSessionRow(row: Record<string, unknown>): SwimSession {
+  const id = row.id as string;
+  const location = row.location as string;
+  const override = DataStore.getSessionGeofenceOverride(id);
+  const matchedVenue = matchKnownVenueByName(location);
+
+  const latitude =
+    row.latitude != null
+      ? Number(row.latitude)
+      : override?.latitude != null
+      ? Number(override.latitude)
+      : matchedVenue
+      ? matchedVenue.latitude
+      : null;
+
+  const longitude =
+    row.longitude != null
+      ? Number(row.longitude)
+      : override?.longitude != null
+      ? Number(override.longitude)
+      : matchedVenue
+      ? matchedVenue.longitude
+      : null;
+
+  const geofence_radius =
+    row.geofence_radius != null
+      ? Number(row.geofence_radius)
+      : override?.geofence_radius != null
+      ? Number(override.geofence_radius)
+      : matchedVenue
+      ? matchedVenue.radiusMeters
+      : DEFAULT_GEOFENCE_RADIUS_METERS;
+
   return {
-    id: row.id as string,
+    id,
     series_id: (row.series_id as string) || null,
     title: row.title as string,
     date: row.date as string,
     start_time: row.start_time as string,
     end_time: row.end_time as string,
-    location: row.location as string,
-    latitude: row.latitude != null ? Number(row.latitude) : null,
-    longitude: row.longitude != null ? Number(row.longitude) : null,
-    geofence_radius:
-      row.geofence_radius != null ? Number(row.geofence_radius) : DEFAULT_GEOFENCE_RADIUS_METERS,
+    location,
+    latitude,
+    longitude,
+    geofence_radius,
     notes: (row.notes as string) || null,
     status: (row.status as "scheduled" | "completed" | "cancelled") || "scheduled",
     is_finalized: !!row.is_finalized,
@@ -199,7 +230,16 @@ export const SupabaseDB = {
         DataStore.hydrateSwimmers(mappedSwimmers);
       }
 
-      // 2. Swim Sessions
+      // 2. App Settings (hydrate before sessions so session_geofences overrides are available)
+      if (settingsRes.data && settingsRes.data.length > 0) {
+        const settingsMap: Record<string, AppSetting> = {};
+        for (const row of settingsRes.data) {
+          settingsMap[row.key] = row as AppSetting;
+        }
+        DataStore.hydrateSettings(settingsMap);
+      }
+
+      // 3. Swim Sessions
       if (sessionsRes.data && sessionsRes.data.length > 0) {
         const mappedSessions: SwimSession[] = sessionsRes.data.map((row: Record<string, unknown>) =>
           mapSessionRow(row)
@@ -207,18 +247,9 @@ export const SupabaseDB = {
         DataStore.hydrateSessions(mappedSessions);
       }
 
-      // 3. Attendance Records
+      // 4. Attendance Records
       if (attendanceRes.data && attendanceRes.data.length > 0) {
         DataStore.hydrateAttendance(attendanceRes.data as AttendanceRecord[]);
-      }
-
-      // 4. App Settings
-      if (settingsRes.data && settingsRes.data.length > 0) {
-        const settingsMap: Record<string, AppSetting> = {};
-        for (const row of settingsRes.data) {
-          settingsMap[row.key] = row as AppSetting;
-        }
-        DataStore.hydrateSettings(settingsMap);
       }
 
       // 5. Reminders
@@ -542,6 +573,9 @@ export const SupabaseDB = {
 
   /**
    * Upserts a swim session.
+   * Fault-tolerant: writes base columns first, then attempts geofence columns on swim_sessions
+   * and also persists coordinates in app_settings (`session_geofences`) so custom pool pins
+   * always persist even if the geofence SQL migration has not been applied yet.
    */
   async upsertSession(session: SwimSession): Promise<void> {
     const supabase = getSupabaseAdminClient();
@@ -552,7 +586,7 @@ export const SupabaseDB = {
         val.length === 36 &&
         val !== "00000000-0000-0000-0000-000000000000";
 
-      const payload: Record<string, unknown> = {
+      const basePayload: Record<string, unknown> = {
         id: session.id,
         title: session.title,
         date: session.date,
@@ -566,22 +600,57 @@ export const SupabaseDB = {
       };
 
       if (isValidUuid(session.series_id)) {
-        payload.series_id = session.series_id;
+        basePayload.series_id = session.series_id;
       }
-      if (session.latitude != null) payload.latitude = session.latitude;
-      if (session.longitude != null) payload.longitude = session.longitude;
-      if (session.geofence_radius != null) payload.geofence_radius = session.geofence_radius;
-
       if (session.finalized_at) {
-        payload.finalized_at = session.finalized_at;
+        basePayload.finalized_at = session.finalized_at;
       }
       if (isValidUuid(session.finalized_by)) {
-        payload.finalized_by = session.finalized_by;
+        basePayload.finalized_by = session.finalized_by;
       }
 
-      const { error } = await supabase.from("swim_sessions").upsert(payload);
-      if (error) {
-        console.error("[SupabaseDB] Error upserting session:", error);
+      // 1. Upsert guaranteed base columns first so location text always persists
+      const { error: baseError } = await supabase.from("swim_sessions").upsert(basePayload);
+      if (baseError) {
+        console.error("[SupabaseDB] Error upserting session base payload:", baseError);
+      }
+
+      // 2. Non-fatally update geofence coordinates & clamped radius on swim_sessions
+      const clampedRadius =
+        session.geofence_radius != null
+          ? Math.min(250, Math.max(25, Math.round(Number(session.geofence_radius))))
+          : DEFAULT_GEOFENCE_RADIUS_METERS;
+
+      if (session.latitude != null || session.longitude != null || session.geofence_radius != null) {
+        try {
+          const geoPayload: Record<string, unknown> = {
+            geofence_radius: clampedRadius,
+          };
+          if (session.latitude != null) geoPayload.latitude = session.latitude;
+          if (session.longitude != null) geoPayload.longitude = session.longitude;
+
+          await supabase.from("swim_sessions").update(geoPayload).eq("id", session.id);
+        } catch {
+          // Geofence columns may not be migrated yet in live DB — handled by app_settings fallback below
+        }
+      }
+
+      // 3. Persist in app_settings ("session_geofences") as a rock-solid fallback
+      if (session.latitude != null && session.longitude != null) {
+        DataStore.setSessionGeofenceOverride(session.id, {
+          location: session.location,
+          latitude: session.latitude,
+          longitude: session.longitude,
+          geofence_radius: clampedRadius,
+        });
+        const allSettings = DataStore.getAppSettings();
+        const geoSetting = allSettings["session_geofences"];
+        if (geoSetting && typeof geoSetting.value === "object" && geoSetting.value !== null) {
+          await this.upsertAppSetting(
+            "session_geofences",
+            geoSetting.value as Record<string, unknown>
+          );
+        }
       }
     } catch (err) {
       console.error("[SupabaseDB] Error upserting session:", err);

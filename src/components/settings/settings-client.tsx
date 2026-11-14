@@ -15,7 +15,9 @@ import {
   Mail,
   Activity,
   Trash2,
+  MapPin,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { logoutAction } from "@/actions/auth-actions";
 import {
@@ -25,8 +27,15 @@ import {
   exportDatabaseBackupAction,
   resetToDemoAction,
 } from "@/actions/settings-actions";
+import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "@/lib/geo-fence";
+import { cn } from "@/lib/utils";
 import { AppSetting } from "@/types/database";
 import { toast } from "sonner";
+
+const MapLocationPickerModal = dynamic(
+  () => import("@/components/sessions/map-location-picker").then((m) => m.MapLocationPickerModal),
+  { ssr: false }
+);
 
 interface SettingsClientProps {
   initialSettings?: Record<string, AppSetting>;
@@ -42,6 +51,26 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
   const [defaultPool, setDefaultPool] = React.useState(
     (generalVal?.default_pool as string) || "Bandaranayake College Swimming Pool Complex, Gampaha"
   );
+  const initialMatchedVenue = matchKnownVenueByName(
+    (generalVal?.default_pool as string) || "Bandaranayake College Swimming Pool Complex, Gampaha"
+  );
+  const [defaultPoolLat, setDefaultPoolLat] = React.useState<number>(
+    typeof generalVal?.default_pool_latitude === "number"
+      ? (generalVal.default_pool_latitude as number)
+      : initialMatchedVenue?.latitude ?? 7.0917
+  );
+  const [defaultPoolLng, setDefaultPoolLng] = React.useState<number>(
+    typeof generalVal?.default_pool_longitude === "number"
+      ? (generalVal.default_pool_longitude as number)
+      : initialMatchedVenue?.longitude ?? 79.9996
+  );
+  const [defaultPoolRadius, setDefaultPoolRadius] = React.useState<number>(
+    typeof generalVal?.default_pool_radius === "number"
+      ? (generalVal.default_pool_radius as number)
+      : initialMatchedVenue?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS
+  );
+  const [applyToUpcoming, setApplyToUpcoming] = React.useState(true);
+  const [showMapPicker, setShowMapPicker] = React.useState(false);
   const [duration, setDuration] = React.useState(
     String(generalVal?.default_duration_minutes || "60")
   );
@@ -66,7 +95,26 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     if (initialSettings?.general?.value) {
       const g = initialSettings.general.value as Record<string, unknown>;
       if (g.group_name) setGroupName(g.group_name as string);
-      if (g.default_pool !== undefined) setDefaultPool(g.default_pool as string);
+      if (g.default_pool !== undefined) {
+        const poolStr = g.default_pool as string;
+        setDefaultPool(poolStr);
+        const matched = matchKnownVenueByName(poolStr);
+        if (typeof g.default_pool_latitude === "number") {
+          setDefaultPoolLat(g.default_pool_latitude);
+        } else if (matched) {
+          setDefaultPoolLat(matched.latitude);
+        }
+        if (typeof g.default_pool_longitude === "number") {
+          setDefaultPoolLng(g.default_pool_longitude);
+        } else if (matched) {
+          setDefaultPoolLng(matched.longitude);
+        }
+        if (typeof g.default_pool_radius === "number") {
+          setDefaultPoolRadius(g.default_pool_radius);
+        } else if (matched) {
+          setDefaultPoolRadius(matched.radiusMeters);
+        }
+      }
       if (g.default_duration_minutes) setDuration(String(g.default_duration_minutes));
       if (g.admin_email) setAdminEmail(g.admin_email as string);
       if (g.late_threshold_minutes !== undefined) setLateThreshold(String(g.late_threshold_minutes));
@@ -225,17 +273,114 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
           </div>
 
           <div>
-            <label className="block font-semibold text-foreground mb-1">
-              Default Facility / Pool
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-semibold text-foreground">
+                Default Facility / Pool
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowMapPicker(true)}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-aqua hover:underline"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Select on Map</span>
+              </button>
+            </div>
             <input
               type="text"
               name="default_pool"
               value={defaultPool}
-              onChange={(e) => setDefaultPool(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setDefaultPool(val);
+                const matched = matchKnownVenueByName(val);
+                if (matched) {
+                  setDefaultPoolLat(matched.latitude);
+                  setDefaultPoolLng(matched.longitude);
+                  setDefaultPoolRadius(matched.radiusMeters);
+                }
+              }}
               placeholder="e.g. Bandaranayake College Swimming Pool Complex, Gampaha"
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
             />
+            <input type="hidden" name="default_pool_latitude" value={defaultPoolLat} />
+            <input type="hidden" name="default_pool_longitude" value={defaultPoolLng} />
+            <input type="hidden" name="default_pool_radius" value={defaultPoolRadius} />
+
+            <div className="mt-2 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1 font-mono text-[10px]">
+                  <MapPin className="w-3 h-3 text-aqua shrink-0" />
+                  <span>
+                    {defaultPoolLat.toFixed(4)}, {defaultPoolLng.toFixed(4)} ({defaultPoolRadius}m geofence)
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowMapPicker(true)}
+                  className="text-aqua font-bold text-[10px] hover:underline"
+                >
+                  Change Pin &rarr;
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDefaultPool("Bandaranayake College Swimming Pool Complex, Gampaha");
+                    setDefaultPoolLat(7.0917);
+                    setDefaultPoolLng(79.9996);
+                    setDefaultPoolRadius(DEFAULT_GEOFENCE_RADIUS_METERS);
+                  }}
+                  className={cn(
+                    "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                    Math.abs(defaultPoolLat - 7.0917) < 0.0002
+                      ? "bg-aqua/20 text-aqua border-aqua/40"
+                      : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                  )}
+                >
+                  Bandaranayake ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDefaultPool("Ranaviru Apparels Swimming Pool, Yakkala");
+                    setDefaultPoolLat(7.0785);
+                    setDefaultPoolLng(80.036);
+                    setDefaultPoolRadius(DEFAULT_GEOFENCE_RADIUS_METERS);
+                  }}
+                  className={cn(
+                    "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                    Math.abs(defaultPoolLat - 7.0785) < 0.0002
+                      ? "bg-aqua/20 text-aqua border-aqua/40"
+                      : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                  )}
+                >
+                  Ranaviru Apparels ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowMapPicker(true)}
+                  className="px-2 py-0.5 rounded-md border border-seafoam/40 bg-seafoam/10 text-seafoam text-[10px] font-bold hover:bg-seafoam/20 transition-all flex items-center gap-1"
+                >
+                  <span>🗺️ Pick on Map</span>
+                </button>
+              </div>
+
+              <label className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  name="apply_to_upcoming_sessions"
+                  checked={applyToUpcoming}
+                  onChange={(e) => setApplyToUpcoming(e.target.checked)}
+                  className="rounded border-border text-aqua focus:ring-aqua"
+                />
+                <span>Also update pool location &amp; GPS pin on all upcoming scheduled sessions</span>
+              </label>
+            </div>
           </div>
 
           <div>
@@ -445,6 +590,30 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
           </button>
         </div>
       </div>
+      {/* Interactive Default Pool Map Picker Modal */}
+      {showMapPicker && (
+        <MapLocationPickerModal
+          isOpen={showMapPicker}
+          onClose={() => setShowMapPicker(false)}
+          title="Select Default Facility / Pool on Map"
+          confirmLabel={`Set Default Pool (${defaultPoolRadius}m)`}
+          initialLocation={{
+            name: defaultPool,
+            latitude: defaultPoolLat,
+            longitude: defaultPoolLng,
+            radiusMeters: defaultPoolRadius,
+          }}
+          onSelectLocation={(data) => {
+            setDefaultPool(data.name);
+            setDefaultPoolLat(data.latitude);
+            setDefaultPoolLng(data.longitude);
+            setDefaultPoolRadius(data.radiusMeters);
+            toast.success(
+              `Default pool pin set to ${data.name} (${data.radiusMeters}m). Click "Save Preferences" to apply!`
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

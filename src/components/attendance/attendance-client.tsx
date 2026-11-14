@@ -49,8 +49,16 @@ import {
   finalizeSessionAction,
   reopenSessionAction,
   deleteSessionAction,
+  updateSessionLocationAction,
 } from "@/actions/session-actions";
+import { getSessionVenueCoordinates } from "@/lib/geo-fence";
+import dynamic from "next/dynamic";
 import { formatTime, getInitials, cn } from "@/lib/utils";
+
+const MapLocationPickerModal = dynamic(
+  () => import("@/components/sessions/map-location-picker").then((m) => m.MapLocationPickerModal),
+  { ssr: false }
+);
 import {
   calculateMinutesLate,
   calculateArrivalTime,
@@ -79,14 +87,17 @@ export function AttendanceClient({
 }: AttendanceClientProps) {
   const router = useRouter();
 
-  // Session Finalization State
+  // Session Finalization & Location State
   const [isFinalized, setIsFinalized] = React.useState(session.is_finalized);
   const [sessionStatus, setSessionStatus] = React.useState(session.status);
+  const [currentSession, setCurrentSession] = React.useState<SwimSession>(session);
+  const [showMapPicker, setShowMapPicker] = React.useState(false);
 
   React.useEffect(() => {
     setIsFinalized(session.is_finalized);
     setSessionStatus(session.status);
-  }, [session.is_finalized, session.status]);
+    setCurrentSession(session);
+  }, [session]);
 
   // Attendance Records State
   const [attendance, setAttendance] = React.useState<AttendanceRecord[]>(initialAttendance);
@@ -785,15 +796,44 @@ export function AttendanceClient({
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-              {session.title}
+              {currentSession.title}
             </h1>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              {session.date} &bull; {formatTime(session.start_time)} – {formatTime(session.end_time)} &bull; {session.location}
-            </p>
+            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-muted-foreground mt-1">
+              <span>{currentSession.date}</span>
+              <span>&bull;</span>
+              <span>
+                {formatTime(currentSession.start_time)} – {formatTime(currentSession.end_time)}
+              </span>
+              <span>&bull;</span>
+              <button
+                type="button"
+                onClick={() => setShowMapPicker(true)}
+                title="Change pool location & geofence GPS pin"
+                className="inline-flex items-center gap-1 hover:text-aqua transition-colors group text-left"
+              >
+                <MapPin className="w-3.5 h-3.5 text-coral group-hover:text-aqua transition-colors shrink-0" />
+                <span className="underline decoration-dotted underline-offset-2">
+                  {currentSession.location}
+                </span>
+                <span className="text-[10px] font-bold text-aqua px-1.5 py-0.2 rounded-full bg-aqua/10 border border-aqua/30 ml-0.5">
+                  Change Pin
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Quick Session State Controls */}
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowMapPicker(true)}
+              aria-label="Change pool location and GPS pin"
+              className="p-2 rounded-xl border border-aqua/30 bg-aqua/10 hover:bg-aqua/20 text-aqua text-xs font-semibold flex items-center gap-1.5 transition-all"
+              title="Change pool location & GPS pin on map"
+            >
+              <MapPin className="w-4 h-4" />
+              <span className="hidden sm:inline">Pool Pin</span>
+            </button>
             <button
               type="button"
               onClick={() => setShowRecapModal(true)}
@@ -2004,6 +2044,48 @@ export function AttendanceClient({
             </div>
           </div>
         </div>
+      )}
+      {/* Interactive Pool Location Pin Modal */}
+      {showMapPicker && (
+        <MapLocationPickerModal
+          isOpen={showMapPicker}
+          onClose={() => setShowMapPicker(false)}
+          title={`Change Pool Location — ${currentSession.title}`}
+          confirmLabel="Save Session Pool Location"
+          initialLocation={(() => {
+            const venue = getSessionVenueCoordinates(currentSession);
+            return {
+              name: currentSession.location || venue.name,
+              latitude: currentSession.latitude ?? venue.latitude,
+              longitude: currentSession.longitude ?? venue.longitude,
+              radiusMeters: currentSession.geofence_radius ?? venue.radiusMeters,
+            };
+          })()}
+          onSelectLocation={async (data) => {
+            const res = await updateSessionLocationAction(currentSession.id, {
+              location: data.name,
+              latitude: data.latitude,
+              longitude: data.longitude,
+              geofence_radius: data.radiusMeters,
+            });
+            if (!res.success) {
+              toast.error(res.error || "Failed to update pool location.");
+              return false;
+            }
+            setCurrentSession((prev) => ({
+              ...prev,
+              location: data.name,
+              latitude: data.latitude,
+              longitude: data.longitude,
+              geofence_radius: data.radiusMeters,
+            }));
+            toast.success(
+              `Updated pool location to ${data.name} (${data.radiusMeters}m geofence)!`
+            );
+            router.refresh();
+            return true;
+          }}
+        />
       )}
     </div>
   );

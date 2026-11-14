@@ -9,16 +9,26 @@ export default async function SessionsPage() {
   const sessions = DataStore.getSessions({ status: "all" });
   const settings = DataStore.getAppSettings();
   const generalVal = settings.general?.value as
-    | { default_pool?: string; default_duration_minutes?: number }
+    | {
+        default_pool?: string;
+        default_pool_latitude?: number;
+        default_pool_longitude?: number;
+        default_pool_radius?: number;
+        default_duration_minutes?: number;
+      }
     | undefined;
 
-  const defaultPool = generalVal?.default_pool || "Bandaranayake College Swimming Pool Complex, Gampaha";
+  const defaultPool =
+    generalVal?.default_pool || "Bandaranayake College Swimming Pool Complex, Gampaha";
   const defaultDuration = Number(generalVal?.default_duration_minutes) || 105;
 
   return (
     <SessionListClient
       initialSessions={sessions}
       defaultPool={defaultPool}
+      defaultPoolLatitude={generalVal?.default_pool_latitude}
+      defaultPoolLongitude={generalVal?.default_pool_longitude}
+      defaultPoolRadius={generalVal?.default_pool_radius}
       defaultDuration={defaultDuration}
     />
   );

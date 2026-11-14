@@ -17,6 +17,7 @@ function clampGeofenceRadius(raw: string | null | undefined): number {
 
 export async function createSessionAction(formData: FormData) {
   await requireAdminSession();
+  await DataStore.syncFromSupabase();
 
   const title = sanitizeString(formData.get("title") as string, 120);
   const date = (formData.get("date") as string)?.trim();
@@ -55,6 +56,7 @@ export async function createSessionAction(formData: FormData) {
   revalidatePath("/calendar");
   revalidatePath("/dashboard");
   revalidatePath("/attendance");
+  revalidatePath("/portal");
 
   return { success: true, session };
 }
@@ -114,19 +116,29 @@ export async function updateSessionAction(id: string, formData: FormData) {
   await requireAdminSession();
   await DataStore.syncFromSupabase();
 
-  const title = sanitizeString(formData.get("title") as string, 120);
-  const date = (formData.get("date") as string)?.trim();
-  const start_time = (formData.get("start_time") as string)?.trim();
-  const end_time = (formData.get("end_time") as string)?.trim();
-  const location = sanitizeString(formData.get("location") as string, 150);
-  const notes = sanitizeString(formData.get("notes") as string, 500) || undefined;
+  const existing = DataStore.getSessionById(id);
+  if (!existing) {
+    return { success: false, error: "Session not found." };
+  }
+
+  const title = sanitizeString(formData.get("title") as string, 120) || existing.title;
+  const date = (formData.get("date") as string)?.trim() || existing.date;
+  const start_time = (formData.get("start_time") as string)?.trim() || existing.start_time;
+  const end_time = (formData.get("end_time") as string)?.trim() || existing.end_time;
+  const location = sanitizeString(formData.get("location") as string, 150) || existing.location;
+  const notes = formData.has("notes")
+    ? sanitizeString(formData.get("notes") as string, 500) || null
+    : existing.notes;
 
   const rawLat = formData.get("latitude") as string;
   const rawLng = formData.get("longitude") as string;
   const rawRadius = formData.get("geofence_radius") as string;
-  const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
-  const longitude = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
-  const geofence_radius = rawRadius && !isNaN(parseInt(rawRadius, 10)) ? parseInt(rawRadius, 10) : undefined;
+  const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : existing.latitude;
+  const longitude =
+    rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : existing.longitude;
+  const geofence_radius = rawRadius
+    ? clampGeofenceRadius(rawRadius)
+    : existing.geofence_radius ?? DEFAULT_GEOFENCE_RADIUS_METERS;
 
   const session = DataStore.updateSession(id, {
     title,
@@ -135,9 +147,9 @@ export async function updateSessionAction(id: string, formData: FormData) {
     end_time,
     location,
     notes,
-    ...(latitude !== undefined ? { latitude } : {}),
-    ...(longitude !== undefined ? { longitude } : {}),
-    ...(geofence_radius !== undefined ? { geofence_radius } : {}),
+    latitude,
+    longitude,
+    geofence_radius,
   });
 
   if (session) {
@@ -149,8 +161,71 @@ export async function updateSessionAction(id: string, formData: FormData) {
   revalidatePath("/calendar");
   revalidatePath("/dashboard");
   revalidatePath("/attendance");
+  revalidatePath("/portal");
 
   return { success: true, session };
+}
+
+/**
+ * Updates the pool venue, GPS pin coordinates, and geofence check-in radius for an existing session.
+ */
+export async function updateSessionLocationAction(
+  id: string,
+  data: {
+    location: string;
+    latitude: number;
+    longitude: number;
+    geofence_radius: number;
+  }
+) {
+  try {
+    await requireAdminSession();
+    await DataStore.syncFromSupabase();
+
+    const existing = DataStore.getSessionById(id);
+    if (!existing) {
+      return { success: false as const, error: "Session not found." };
+    }
+
+    const location = sanitizeString(data.location, 150);
+    if (!location) {
+      return { success: false as const, error: "Pool location name is required." };
+    }
+
+    const latitude = Number.isFinite(data.latitude)
+      ? Math.max(-90, Math.min(90, Number(data.latitude.toFixed(6))))
+      : existing.latitude;
+    const longitude = Number.isFinite(data.longitude)
+      ? Math.max(-180, Math.min(180, Number(data.longitude.toFixed(6))))
+      : existing.longitude;
+    const geofence_radius = clampGeofenceRadius(String(data.geofence_radius));
+
+    const session = DataStore.updateSession(id, {
+      location,
+      latitude,
+      longitude,
+      geofence_radius,
+    });
+
+    if (session) {
+      await SupabaseDB.upsertSession(session);
+    }
+
+    revalidatePath("/sessions");
+    revalidatePath(`/sessions/${id}`);
+    revalidatePath("/calendar");
+    revalidatePath("/dashboard");
+    revalidatePath("/attendance");
+    revalidatePath("/portal");
+
+    return { success: true as const, session };
+  } catch (err) {
+    console.error("[updateSessionLocationAction] Error:", err);
+    return {
+      success: false as const,
+      error: err instanceof Error ? err.message : "Failed to update pool location.",
+    };
+  }
 }
 
 export async function deleteSessionAction(id: string) {

@@ -29,14 +29,22 @@ import {
   X,
 } from "lucide-react";
 import { AttendanceRecord, Swimmer, SwimSession } from "@/types/database";
+import dynamic from "next/dynamic";
 import {
   finalizeSessionAction,
   reopenSessionAction,
   deleteSessionAction,
+  updateSessionLocationAction,
 } from "@/actions/session-actions";
 import { generateSessionStateReport, SessionStateReport } from "@/lib/session-reports";
+import { getSessionVenueCoordinates } from "@/lib/geo-fence";
 import { formatTime, getInitials, cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+const MapLocationPickerModal = dynamic(
+  () => import("./map-location-picker").then((m) => m.MapLocationPickerModal),
+  { ssr: false }
+);
 
 interface SessionStateReportClientProps {
   session: SwimSession;
@@ -46,23 +54,26 @@ interface SessionStateReportClientProps {
 }
 
 export function SessionStateReportClient({
-  session,
+  session: initialSession,
   attendance,
   swimmers,
   eligibleRemindersCount,
 }: SessionStateReportClientProps) {
   const router = useRouter();
+  const [session, setSession] = React.useState<SwimSession>(initialSession);
   const [activeTab, setActiveTab] = React.useState<"report" | "roster">("report");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
-  const [isFinalized, setIsFinalized] = React.useState(session.is_finalized);
+  const [isFinalized, setIsFinalized] = React.useState(initialSession.is_finalized);
   const [isActionPending, setIsActionPending] = React.useState(false);
   const [showDeleteModal, setShowDeleteModal] = React.useState(false);
   const [isDeletingSession, setIsDeletingSession] = React.useState(false);
+  const [showMapPicker, setShowMapPicker] = React.useState(false);
 
   React.useEffect(() => {
-    setIsFinalized(session.is_finalized);
-  }, [session.is_finalized]);
+    setSession(initialSession);
+    setIsFinalized(initialSession.is_finalized);
+  }, [initialSession]);
 
   async function handleToggleFinalize() {
     setIsActionPending(true);
@@ -214,10 +225,20 @@ export function SessionStateReportClient({
                   {formatTime(session.start_time)} – {formatTime(session.end_time)}
                 </span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-coral" />
-                <span>{session.location}</span>
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowMapPicker(true)}
+                title="Click to change pool location & geofence pin on map"
+                className="flex items-center gap-1.5 hover:text-aqua transition-colors group text-left"
+              >
+                <MapPin className="w-4 h-4 text-coral group-hover:text-aqua transition-colors shrink-0" />
+                <span className="underline decoration-dotted underline-offset-2">
+                  {session.location}
+                </span>
+                <span className="text-[10px] font-bold text-aqua px-2 py-0.5 rounded-full bg-aqua/10 border border-aqua/30">
+                  Change Pool Pin
+                </span>
+              </button>
             </div>
 
             {session.notes && (
@@ -823,6 +844,47 @@ export function SessionStateReportClient({
             })}
           </div>
         </div>
+      )}
+
+      {/* Interactive Pool Location Pin Modal */}
+      {showMapPicker && (
+        <MapLocationPickerModal
+          isOpen={showMapPicker}
+          onClose={() => setShowMapPicker(false)}
+          title={`Change Pool Location — ${session.title}`}
+          confirmLabel="Save Pool Location"
+          initialLocation={(() => {
+            const venue = getSessionVenueCoordinates(session);
+            return {
+              name: session.location || venue.name,
+              latitude: session.latitude ?? venue.latitude,
+              longitude: session.longitude ?? venue.longitude,
+              radiusMeters: session.geofence_radius ?? venue.radiusMeters,
+            };
+          })()}
+          onSelectLocation={async (data) => {
+            const res = await updateSessionLocationAction(session.id, {
+              location: data.name,
+              latitude: data.latitude,
+              longitude: data.longitude,
+              geofence_radius: data.radiusMeters,
+            });
+            if (!res.success) {
+              toast.error(res.error || "Failed to update pool location.");
+              return false;
+            }
+            setSession((prev) => ({
+              ...prev,
+              location: data.name,
+              latitude: data.latitude,
+              longitude: data.longitude,
+              geofence_radius: data.radiusMeters,
+            }));
+            toast.success(`Pool location updated to ${data.name} (${data.radiusMeters}m geofence)!`);
+            router.refresh();
+            return true;
+          }}
+        />
       )}
 
       {/* Delete Session Confirmation Modal */}

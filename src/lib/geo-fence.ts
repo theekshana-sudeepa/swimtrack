@@ -38,21 +38,10 @@ export const KNOWN_VENUES: Record<string, VenueLocation> = {
 };
 
 /**
- * STRICT venue resolver: returns null when the session has no explicit coordinates and its
- * location text matches no known venue. Used for anything security-relevant (check-in) so a
- * swimmer can never be verified against the wrong pool.
+ * Matches a location name string against known squad swimming venues.
  */
-export function resolveSessionVenue(session: SwimSession): VenueLocation | null {
-  if (session.latitude != null && session.longitude != null) {
-    return {
-      name: session.location,
-      latitude: session.latitude,
-      longitude: session.longitude,
-      radiusMeters: session.geofence_radius || DEFAULT_GEOFENCE_RADIUS_METERS,
-    };
-  }
-
-  const loc = (session.location || "").toLowerCase().trim();
+export function matchKnownVenueByName(locationName?: string | null): VenueLocation | null {
+  const loc = (locationName || "").toLowerCase().trim();
   if (!loc) return null;
   for (const venue of Object.values(KNOWN_VENUES)) {
     const venueLower = venue.name.toLowerCase();
@@ -67,6 +56,24 @@ export function resolveSessionVenue(session: SwimSession): VenueLocation | null 
     }
   }
   return null;
+}
+
+/**
+ * STRICT venue resolver: returns null when the session has no explicit coordinates and its
+ * location text matches no known venue. Used for anything security-relevant (check-in) so a
+ * swimmer can never be verified against the wrong pool.
+ */
+export function resolveSessionVenue(session: SwimSession): VenueLocation | null {
+  if (session.latitude != null && session.longitude != null) {
+    return {
+      name: session.location,
+      latitude: session.latitude,
+      longitude: session.longitude,
+      radiusMeters: session.geofence_radius || DEFAULT_GEOFENCE_RADIUS_METERS,
+    };
+  }
+
+  return matchKnownVenueByName(session.location);
 }
 
 /**

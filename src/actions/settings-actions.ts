@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { DataStore } from "@/lib/data-store";
+import { SupabaseDB } from "@/lib/supabase-db";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import { sanitizeString, sanitizeEmail } from "@/lib/security";
+import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "@/lib/geo-fence";
 import {
   Swimmer,
   SwimSession,
@@ -85,37 +87,70 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
   const late_threshold_minutes = clampInt(formData.get("late_threshold_minutes"), 10, 0, 120);
   const excuse_cutoff_minutes = clampInt(formData.get("excuse_cutoff_minutes"), 60, 0, 24 * 60);
 
+  const matchedVenue = matchKnownVenueByName(default_pool);
+  const rawLat = parseFloat(String(formData.get("default_pool_latitude") ?? ""));
+  const rawLng = parseFloat(String(formData.get("default_pool_longitude") ?? ""));
+  const default_pool_latitude = Number.isFinite(rawLat)
+    ? Number(rawLat.toFixed(6))
+    : matchedVenue?.latitude ?? 7.0917;
+  const default_pool_longitude = Number.isFinite(rawLng)
+    ? Number(rawLng.toFixed(6))
+    : matchedVenue?.longitude ?? 79.9996;
+  const default_pool_radius = clampInt(
+    formData.get("default_pool_radius"),
+    matchedVenue?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS,
+    25,
+    250
+  );
+  const applyToUpcoming = formData.get("apply_to_upcoming_sessions") === "on";
+
   try {
-    DataStore.updateAppSetting("general", {
+    await DataStore.syncFromSupabase();
+
+    const generalPayload = {
       group_name,
       default_pool,
+      default_pool_latitude,
+      default_pool_longitude,
+      default_pool_radius,
       default_duration_minutes,
       admin_email,
       late_threshold_minutes,
       excuse_cutoff_minutes,
       timezone: "Asia/Colombo",
-    });
+    };
+
+    DataStore.updateAppSetting("general", generalPayload);
 
     const supabase = getSupabaseAdminClient();
     if (supabase) {
       await supabase.from("app_settings").upsert({
         key: "general",
-        value: {
-          group_name,
-          default_pool,
-          default_duration_minutes,
-          admin_email,
-          late_threshold_minutes,
-          excuse_cutoff_minutes,
-          timezone: "Asia/Colombo",
-        },
+        value: generalPayload,
         updated_at: new Date().toISOString(),
       });
+    }
+
+    if (applyToUpcoming) {
+      const scheduledSessions = DataStore.getSessions({ status: "scheduled" });
+      for (const sess of scheduledSessions) {
+        const updated = DataStore.updateSession(sess.id, {
+          location: default_pool,
+          latitude: default_pool_latitude,
+          longitude: default_pool_longitude,
+          geofence_radius: default_pool_radius,
+        });
+        if (updated) {
+          await SupabaseDB.upsertSession(updated);
+        }
+      }
     }
 
     revalidatePath("/settings");
     revalidatePath("/dashboard");
     revalidatePath("/sessions");
+    revalidatePath("/attendance");
+    revalidatePath("/portal");
 
     return { success: true };
   } catch (err: unknown) {

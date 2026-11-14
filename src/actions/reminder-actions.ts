@@ -23,6 +23,11 @@ export async function sendManualSessionRemindersAction(
   if (!session) {
     return { error: "Session not found." };
   }
+  if (session.status !== "scheduled" || session.is_finalized) {
+    return {
+      error: "Reminders can only be sent for active scheduled sessions (not completed or cancelled sessions).",
+    };
+  }
 
   const results = [];
   for (const swimmerId of swimmerIds) {
@@ -51,6 +56,11 @@ export async function sendTestReminderAction(sessionId: string, testEmail: strin
   const session = DataStore.getSessionById(sessionId);
   if (!session) {
     return { error: "Session not found." };
+  }
+  if (session.status !== "scheduled" || session.is_finalized) {
+    return {
+      error: "Reminders can only be sent for active scheduled sessions (not completed or cancelled sessions).",
+    };
   }
 
   const mockSwimmer = {

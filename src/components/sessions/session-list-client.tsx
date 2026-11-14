@@ -34,18 +34,29 @@ import {
   finalizeSessionAction,
   reopenSessionAction,
   deleteSessionAction,
+  updateSessionLocationAction,
 } from "@/actions/session-actions";
 import { formatTime, cn } from "@/lib/utils";
-import { DEFAULT_GEOFENCE_RADIUS_METERS } from "@/lib/geo-fence";
+import {
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  getSessionVenueCoordinates,
+  matchKnownVenueByName,
+} from "@/lib/geo-fence";
 import { toast } from "sonner";
 
 export function SessionListClient({
   initialSessions,
   defaultPool = "Bandaranayake College Swimming Pool Complex, Gampaha",
+  defaultPoolLatitude,
+  defaultPoolLongitude,
+  defaultPoolRadius,
   defaultDuration = 105,
 }: {
   initialSessions: SwimSession[];
   defaultPool?: string;
+  defaultPoolLatitude?: number;
+  defaultPoolLongitude?: number;
+  defaultPoolRadius?: number;
   defaultDuration?: number;
 }) {
   const router = useRouter();
@@ -56,15 +67,36 @@ export function SessionListClient({
   const [actionPendingId, setActionPendingId] = React.useState<string | null>(null);
   const [sessionToDelete, setSessionToDelete] = React.useState<SwimSession | null>(null);
   const [isDeletingSession, setIsDeletingSession] = React.useState(false);
+  const [sessionToEditLocation, setSessionToEditLocation] = React.useState<SwimSession | null>(
+    null
+  );
+
+  const resolvedDefaultGeo = React.useMemo<SelectedLocationData>(() => {
+    const matched = matchKnownVenueByName(defaultPool);
+    return {
+      name: defaultPool || "Bandaranayake College Swimming Pool Complex, Gampaha",
+      latitude:
+        defaultPoolLatitude != null && Number.isFinite(Number(defaultPoolLatitude))
+          ? Number(defaultPoolLatitude)
+          : matched?.latitude ?? 7.0917,
+      longitude:
+        defaultPoolLongitude != null && Number.isFinite(Number(defaultPoolLongitude))
+          ? Number(defaultPoolLongitude)
+          : matched?.longitude ?? 79.9996,
+      radiusMeters:
+        defaultPoolRadius != null && Number.isFinite(Number(defaultPoolRadius))
+          ? Number(defaultPoolRadius)
+          : matched?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS,
+    };
+  }, [defaultPool, defaultPoolLatitude, defaultPoolLongitude, defaultPoolRadius]);
 
   // Custom Map Location State for geofencing
-  const [selectedGeo, setSelectedGeo] = React.useState<SelectedLocationData>({
-    name: defaultPool || "Bandaranayake College Swimming Pool Complex, Gampaha",
-    latitude: 7.0917,
-    longitude: 79.9996,
-    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-  });
+  const [selectedGeo, setSelectedGeo] = React.useState<SelectedLocationData>(resolvedDefaultGeo);
   const [showMapPicker, setShowMapPicker] = React.useState(false);
+
+  React.useEffect(() => {
+    setSelectedGeo(resolvedDefaultGeo);
+  }, [resolvedDefaultGeo]);
 
   React.useEffect(() => {
     setSessions(initialSessions);
@@ -310,10 +342,20 @@ export function SessionListClient({
                         </span>
                       </span>
                       <span>&bull;</span>
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-coral" />
-                        <span>{session.location}</span>
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSessionToEditLocation(session)}
+                        title="Click to change pool location & geofence pin on map"
+                        className="inline-flex items-center gap-1 hover:text-aqua transition-colors group text-left"
+                      >
+                        <MapPin className="w-3.5 h-3.5 text-coral group-hover:text-aqua transition-colors shrink-0" />
+                        <span className="underline decoration-dotted underline-offset-2">
+                          {session.location}
+                        </span>
+                        <span className="text-[10px] font-bold text-aqua px-1.5 py-0.2 rounded bg-aqua/10 border border-aqua/30 ml-0.5">
+                          Change Pin
+                        </span>
+                      </button>
                     </div>
 
                     {summary && (
@@ -371,6 +413,16 @@ export function SessionListClient({
 
                   <button
                     type="button"
+                    onClick={() => setSessionToEditLocation(session)}
+                    title="Change pool location & GPS pin on map"
+                    className="p-2 rounded-xl border border-aqua/30 bg-aqua/10 hover:bg-aqua/20 text-aqua text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95"
+                  >
+                    <MapPin className="w-4 h-4" />
+                    <span className="hidden sm:inline">Pool Pin</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => downloadICS(session)}
                     title="Download .ics Calendar File"
                     className="p-2 rounded-xl border border-border bg-secondary/40 hover:bg-secondary text-muted-foreground hover:text-foreground text-xs font-semibold flex items-center gap-1.5"
@@ -418,7 +470,7 @@ export function SessionListClient({
       {/* Single Session Modal */}
       {showCreateSingleModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md max-h-[92dvh] overflow-y-auto rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-border">
               <h3 className="text-base font-bold text-foreground">Schedule Swimming Session</h3>
               <button
@@ -499,13 +551,25 @@ export function SessionListClient({
                   name="location"
                   required
                   value={selectedGeo.name}
-                  onChange={(e) =>
-                    setSelectedGeo((prev) => ({ ...prev, name: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const matched = matchKnownVenueByName(val);
+                    setSelectedGeo((prev) => ({
+                      ...prev,
+                      name: val,
+                      ...(matched
+                        ? {
+                            latitude: matched.latitude,
+                            longitude: matched.longitude,
+                            radiusMeters: matched.radiusMeters,
+                          }
+                        : {}),
+                    }));
+                  }}
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
 
-                {/* Hidden inputs to submit custom GPS coordinates and 30m geofence radius */}
+                {/* Hidden inputs to submit custom GPS coordinates and geofence radius */}
                 <input type="hidden" name="latitude" value={selectedGeo.latitude} />
                 <input type="hidden" name="longitude" value={selectedGeo.longitude} />
                 <input type="hidden" name="geofence_radius" value={selectedGeo.radiusMeters} />
@@ -546,7 +610,7 @@ export function SessionListClient({
                           : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
                       )}
                     >
-                      Bandaranayake (30m)
+                      Bandaranayake ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
                     </button>
 
                     <button
@@ -566,7 +630,7 @@ export function SessionListClient({
                           : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
                       )}
                     >
-                      Ranaviru Apparels (30m)
+                      Ranaviru Apparels ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
                     </button>
 
                     <button
@@ -615,7 +679,7 @@ export function SessionListClient({
       {/* Recurring Series Modal */}
       {showCreateSeriesModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md max-h-[92dvh] overflow-y-auto rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-border">
               <h3 className="text-base font-bold text-foreground">Create Recurring Series</h3>
               <button
@@ -731,13 +795,25 @@ export function SessionListClient({
                   name="location"
                   required
                   value={selectedGeo.name}
-                  onChange={(e) =>
-                    setSelectedGeo((prev) => ({ ...prev, name: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const matched = matchKnownVenueByName(val);
+                    setSelectedGeo((prev) => ({
+                      ...prev,
+                      name: val,
+                      ...(matched
+                        ? {
+                            latitude: matched.latitude,
+                            longitude: matched.longitude,
+                            radiusMeters: matched.radiusMeters,
+                          }
+                        : {}),
+                    }));
+                  }}
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
 
-                {/* Hidden inputs to submit custom GPS coordinates and 30m geofence radius */}
+                {/* Hidden inputs to submit custom GPS coordinates and geofence radius */}
                 <input type="hidden" name="latitude" value={selectedGeo.latitude} />
                 <input type="hidden" name="longitude" value={selectedGeo.longitude} />
                 <input type="hidden" name="geofence_radius" value={selectedGeo.radiusMeters} />
@@ -778,7 +854,7 @@ export function SessionListClient({
                           : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
                       )}
                     >
-                      Bandaranayake (30m)
+                      Bandaranayake ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
                     </button>
 
                     <button
@@ -798,7 +874,7 @@ export function SessionListClient({
                           : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
                       )}
                     >
-                      Ranaviru Apparels (30m)
+                      Ranaviru Apparels ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
                     </button>
 
                     <button
@@ -831,19 +907,71 @@ export function SessionListClient({
           </div>
         </div>
       )}
-      {/* Interactive Map Location Picker Modal */}
+      {/* Interactive Map Location Picker Modal (Create / Series) */}
       {showMapPicker && (
         <MapLocationPickerModal
           isOpen={showMapPicker}
           onClose={() => setShowMapPicker(false)}
           onSelectLocation={(data) => {
             setSelectedGeo(data);
+            toast.success(`Location set: ${data.name} (${data.radiusMeters}m geofence)`);
           }}
           initialLocation={{
             name: selectedGeo.name,
             latitude: selectedGeo.latitude,
             longitude: selectedGeo.longitude,
             radiusMeters: selectedGeo.radiusMeters,
+          }}
+        />
+      )}
+
+      {/* Edit Existing Session Pool Location Modal */}
+      {sessionToEditLocation && (
+        <MapLocationPickerModal
+          isOpen={!!sessionToEditLocation}
+          onClose={() => setSessionToEditLocation(null)}
+          title={`Change Pool Location — ${sessionToEditLocation.title}`}
+          confirmLabel="Save Session Pool Location"
+          initialLocation={(() => {
+            const venue = getSessionVenueCoordinates(sessionToEditLocation);
+            return {
+              name: sessionToEditLocation.location || venue.name,
+              latitude: sessionToEditLocation.latitude ?? venue.latitude,
+              longitude: sessionToEditLocation.longitude ?? venue.longitude,
+              radiusMeters: sessionToEditLocation.geofence_radius ?? venue.radiusMeters,
+            };
+          })()}
+          onSelectLocation={async (data) => {
+            const target = sessionToEditLocation;
+            if (!target) return false;
+            const res = await updateSessionLocationAction(target.id, {
+              location: data.name,
+              latitude: data.latitude,
+              longitude: data.longitude,
+              geofence_radius: data.radiusMeters,
+            });
+            if (!res.success) {
+              toast.error(res.error || "Failed to update session pool location.");
+              return false;
+            }
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === target.id
+                  ? {
+                      ...s,
+                      location: data.name,
+                      latitude: data.latitude,
+                      longitude: data.longitude,
+                      geofence_radius: data.radiusMeters,
+                    }
+                  : s
+              )
+            );
+            toast.success(
+              `Updated pool location for "${target.title}" to ${data.name} (${data.radiusMeters}m)!`
+            );
+            router.refresh();
+            return true;
           }}
         />
       )}
