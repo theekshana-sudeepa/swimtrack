@@ -39,6 +39,8 @@ import {
 import { formatTime, cn } from "@/lib/utils";
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
+  DEFAULT_VENUE,
+  PRESET_VENUES,
   getSessionVenueCoordinates,
   matchKnownVenueByName,
 } from "@/lib/geo-fence";
@@ -46,7 +48,7 @@ import { toast } from "sonner";
 
 export function SessionListClient({
   initialSessions,
-  defaultPool = "Bandaranayake College Swimming Pool Complex, Gampaha",
+  defaultPool = DEFAULT_VENUE.name,
   defaultPoolLatitude,
   defaultPoolLongitude,
   defaultPoolRadius,
@@ -74,15 +76,15 @@ export function SessionListClient({
   const resolvedDefaultGeo = React.useMemo<SelectedLocationData>(() => {
     const matched = matchKnownVenueByName(defaultPool);
     return {
-      name: defaultPool || "Bandaranayake College Swimming Pool Complex, Gampaha",
+      name: defaultPool || DEFAULT_VENUE.name,
       latitude:
         defaultPoolLatitude != null && Number.isFinite(Number(defaultPoolLatitude))
           ? Number(defaultPoolLatitude)
-          : matched?.latitude ?? 7.0917,
+          : matched?.latitude ?? DEFAULT_VENUE.latitude,
       longitude:
         defaultPoolLongitude != null && Number.isFinite(Number(defaultPoolLongitude))
           ? Number(defaultPoolLongitude)
-          : matched?.longitude ?? 79.9996,
+          : matched?.longitude ?? DEFAULT_VENUE.longitude,
       radiusMeters:
         defaultPoolRadius != null && Number.isFinite(Number(defaultPoolRadius))
           ? Number(defaultPoolRadius)
@@ -593,45 +595,29 @@ export function SessionListClient({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedGeo({
-                          name: "Bandaranayake College Swimming Pool Complex, Gampaha",
-                          latitude: 7.0917,
-                          longitude: 79.9996,
-                          radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-                        })
-                      }
-                      className={cn(
-                        "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
-                        selectedGeo.latitude === 7.0917
-                          ? "bg-aqua/20 text-aqua border-aqua/40"
-                          : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
-                      )}
-                    >
-                      Bandaranayake ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedGeo({
-                          name: "Ranaviru Apparels Swimming Pool, Yakkala",
-                          latitude: 7.0785,
-                          longitude: 80.036,
-                          radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-                        })
-                      }
-                      className={cn(
-                        "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
-                        selectedGeo.latitude === 7.0785
-                          ? "bg-aqua/20 text-aqua border-aqua/40"
-                          : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
-                      )}
-                    >
-                      Ranaviru Apparels ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
-                    </button>
+                    {PRESET_VENUES.map((venue) => (
+                      <button
+                        key={venue.key}
+                        type="button"
+                        onClick={() =>
+                          setSelectedGeo({
+                            name: venue.name,
+                            latitude: venue.latitude,
+                            longitude: venue.longitude,
+                            radiusMeters: venue.radiusMeters,
+                          })
+                        }
+                        className={cn(
+                          "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                          Math.abs(selectedGeo.latitude - venue.latitude) < 0.0002 &&
+                            Math.abs(selectedGeo.longitude - venue.longitude) < 0.0002
+                            ? "bg-aqua/20 text-aqua border-aqua/40"
+                            : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                        )}
+                      >
+                        {venue.shortName} ({venue.radiusMeters}m)
+                      </button>
+                    ))}
 
                     <button
                       type="button"
@@ -837,45 +823,29 @@ export function SessionListClient({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedGeo({
-                          name: "Bandaranayake College Swimming Pool Complex, Gampaha",
-                          latitude: 7.0917,
-                          longitude: 79.9996,
-                          radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-                        })
-                      }
-                      className={cn(
-                        "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
-                        selectedGeo.latitude === 7.0917
-                          ? "bg-aqua/20 text-aqua border-aqua/40"
-                          : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
-                      )}
-                    >
-                      Bandaranayake ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedGeo({
-                          name: "Ranaviru Apparels Swimming Pool, Yakkala",
-                          latitude: 7.0785,
-                          longitude: 80.036,
-                          radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-                        })
-                      }
-                      className={cn(
-                        "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
-                        selectedGeo.latitude === 7.0785
-                          ? "bg-aqua/20 text-aqua border-aqua/40"
-                          : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
-                      )}
-                    >
-                      Ranaviru Apparels ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
-                    </button>
+                    {PRESET_VENUES.map((venue) => (
+                      <button
+                        key={venue.key}
+                        type="button"
+                        onClick={() =>
+                          setSelectedGeo({
+                            name: venue.name,
+                            latitude: venue.latitude,
+                            longitude: venue.longitude,
+                            radiusMeters: venue.radiusMeters,
+                          })
+                        }
+                        className={cn(
+                          "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                          Math.abs(selectedGeo.latitude - venue.latitude) < 0.0002 &&
+                            Math.abs(selectedGeo.longitude - venue.longitude) < 0.0002
+                            ? "bg-aqua/20 text-aqua border-aqua/40"
+                            : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                        )}
+                      >
+                        {venue.shortName} ({venue.radiusMeters}m)
+                      </button>
+                    ))}
 
                     <button
                       type="button"

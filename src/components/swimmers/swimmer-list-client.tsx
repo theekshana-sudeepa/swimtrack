@@ -463,7 +463,7 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                 <input
                   name="full_name"
                   required
-                  placeholder="e.g. Laki Polla"
+                  placeholder="e.g. Kasun Perera"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
@@ -486,7 +486,7 @@ export function SwimmerListClient({ initialSwimmers }: { initialSwimmers: Swimme
                 <input
                   name="email"
                   type="email"
-                  placeholder="e.g. lakipolla@pollamail.com"
+                  placeholder="e.g. kasun@example.test"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>

@@ -118,7 +118,7 @@ export default function JoinSquadPage() {
                     name="full_name"
                     type="text"
                     required
-                    placeholder="e.g. Laki Polla"
+                    placeholder="e.g. Kasun Perera"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-secondary/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-aqua transition-all placeholder:text-muted-foreground/60"
                   />
                 </div>
@@ -155,7 +155,7 @@ export default function JoinSquadPage() {
                     name="email"
                     type="email"
                     required
-                    placeholder="e.g. lakipolla@pollamail.com"
+                    placeholder="e.g. kasun@example.test"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-secondary/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-aqua transition-all placeholder:text-muted-foreground/60"
                   />
                 </div>

@@ -23,9 +23,9 @@ interface AdminNewSwimmerAlertEmailProps {
 }
 
 export default function AdminNewSwimmerAlertEmail({
-  swimmerName = "Laki Polla",
-  nickname = "Polla King",
-  email = "lakipolla@pollamail.com",
+  swimmerName = "Kasun Perera",
+  nickname = "Snooze Captain",
+  email = "kasun@example.test",
   phone = "+94 77 123 4567",
   enrolledAt = new Date().toLocaleString("en-US", { timeZone: "Asia/Colombo" }),
   adminSwimmerUrl = "https://swimtrack.app/swimmers",

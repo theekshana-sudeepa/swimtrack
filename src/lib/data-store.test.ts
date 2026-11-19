@@ -79,7 +79,7 @@ describe("DataStore In-Memory Repository", () => {
       date: "2026-11-08",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Gampaha Complex",
+      location: "Colombo Aquatic Complex",
     });
     DataStore.finalizeSession(newSession.id);
 
@@ -392,11 +392,11 @@ describe("DataStore In-Memory Repository", () => {
         date: "2099-12-10",
         start_time: "15:00:00",
         end_time: "16:45:00",
-        location: "Ranaviru Apparels Swimming Pool, Yakkala",
+        location: "Sugathadasa Stadium Swimming Pool, Colombo",
       });
 
-      expect(session.latitude).toBeCloseTo(7.0785, 4);
-      expect(session.longitude).toBeCloseTo(80.036, 3);
+      expect(session.latitude).toBeCloseTo(6.9491, 4);
+      expect(session.longitude).toBeCloseTo(79.8689, 3);
       expect(session.geofence_radius).toBe(75);
 
       const updated = DataStore.updateSession(session.id, {

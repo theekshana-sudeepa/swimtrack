@@ -1345,7 +1345,7 @@ export function AttendanceClient({
                   required
                   value={addFullName}
                   onChange={(e) => setAddFullName(e.target.value)}
-                  placeholder="e.g. Laki Polla"
+                  placeholder="e.g. Kasun Perera"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>
@@ -1386,7 +1386,7 @@ export function AttendanceClient({
                   type="email"
                   value={addEmail}
                   onChange={(e) => setAddEmail(e.target.value)}
-                  placeholder="e.g. lakipolla@pollamail.com"
+                  placeholder="e.g. kasun@example.test"
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
               </div>

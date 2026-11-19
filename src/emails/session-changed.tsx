@@ -24,7 +24,7 @@ export default function SessionChangedEmail({
   sessionTitle = "Saturday Morning Squad",
   newDateStr = "Saturday, November 7, 2026",
   newTimeStr = "07:00 AM – 08:30 AM",
-  newLocation = "Ranaviru Apparels Swimming Pool, Yakkala",
+  newLocation = "Sugathadasa Stadium Swimming Pool, Colombo",
   changeNote = "Start time delayed by 30 minutes due to pool lane maintenance.",
 }: SessionChangedEmailProps) {
   return (

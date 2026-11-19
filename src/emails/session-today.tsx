@@ -23,7 +23,7 @@ export default function SessionTodayEmail({
   swimmerName = "Swimmer",
   sessionTitle = "Wednesday Evening Technique Drills",
   timeStr = "06:30 PM",
-  location = "Bandaranayake College Swimming Pool Complex, Gampaha",
+  location = "Royal College Aquatic Complex, Colombo",
   notes = "Remember to hydrate well beforehand and arrive 10 minutes early for dynamic stretching.",
 }: SessionTodayEmailProps) {
   return (

@@ -78,7 +78,7 @@ export async function sendSessionReminder({
   }
 
   const resend = getResendClient();
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const swimmerToken =
     (await ensureStrongSwimmerToken(swimmer.id)) ||
@@ -204,7 +204,7 @@ export async function sendWelcomeEmail({
   }
 
   const resend = getResendClient();
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   // Links must carry an unguessable token (never the swimmer id / a derived value)
   const swimmerToken =
@@ -310,8 +310,8 @@ export async function sendSwimmerPassSetupEmail({
   }
 
   const resend = getResendClient();
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://swim-track-wine.vercel.app";
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   // Links must carry an unguessable token (never the swimmer id / a derived value)
   const swimmerToken =
     (await ensureStrongSwimmerToken(swimmer.id)) ||
@@ -419,14 +419,14 @@ export async function sendAdminNewSwimmerAlert({
     overrideAdminEmail?.trim() ||
     (settings?.general?.value?.admin_email as string | undefined)?.trim() ||
     process.env.ADMIN_EMAIL?.trim() ||
-    "theekshanasudeepa4@gmail.com";
+    "admin@example.com";
 
   if (!configuredAdminEmail || !configuredAdminEmail.includes("@")) {
     return { success: false, error: "No valid admin email configured." };
   }
 
   const resend = getResendClient();
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>";
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
   const enrolledAt = new Date().toLocaleString("en-US", {
@@ -582,7 +582,7 @@ export async function sendCoachExcuseNotice({
 
   try {
     const { data, error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "SwimTrack <notifications@lexoratech.com>",
+      from: process.env.RESEND_FROM_EMAIL || "SwimTrack <onboarding@resend.dev>",
       to: [adminEmail],
       subject: `${action === "declare" ? "🩹 Excused" : "↩️ Excuse withdrawn"}: ${swimmer.full_name} - ${session.title}`,
       html: `<div style="font-family:system-ui,sans-serif;max-width:480px">

@@ -85,10 +85,10 @@ function getInitialStore(forceDemo = false): StoreState {
         key: "general",
         value: {
           group_name: "SwimTrack Club",
-          default_pool: "Bandaranayake College Swimming Pool Complex, Gampaha",
+          default_pool: "Royal College Aquatic Complex, Colombo",
           default_duration_minutes: 105,
           timezone: "Asia/Colombo",
-          admin_email: "theekshanasudeepa4@gmail.com",
+          admin_email: process.env.ADMIN_EMAIL || "admin@example.com",
         },
       },
       reminders: {

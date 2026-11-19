@@ -9,7 +9,7 @@ describe("Session State Reports & Squad Roles", () => {
     date: "2026-11-08",
     start_time: "15:00:00",
     end_time: "16:45:00",
-    location: "Bandaranayake College Swimming Pool Complex",
+    location: "Royal College Aquatic Complex, Colombo",
     status: "completed",
     is_finalized: true,
   };
@@ -34,8 +34,8 @@ describe("Session State Reports & Squad Roles", () => {
     },
     {
       id: "swim-2",
-      full_name: "Laki Polla",
-      nickname: "Polla",
+      full_name: "Rohan Fernando",
+      nickname: "Snooze",
       join_date: "2026-01-01",
       status: "active",
       attendance_stats: {

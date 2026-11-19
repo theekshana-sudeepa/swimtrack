@@ -24,8 +24,8 @@ interface SwimmerPassSetupEmailProps {
 export default function SwimmerPassSetupEmail({
   swimmerName = "Swimmer",
   nickname,
-  portalUrl = "https://swim-track-wine.vercel.app/portal",
-  optOutUrl = "https://swim-track-wine.vercel.app/reminders/opt-out",
+  portalUrl = "https://swimtrack.example.com/portal",
+  optOutUrl = "https://swimtrack.example.com/reminders/opt-out",
 }: SwimmerPassSetupEmailProps) {
   const displayName = nickname ? `${swimmerName} ("${nickname}")` : swimmerName;
 

@@ -6,7 +6,7 @@ import { DataStore } from "@/lib/data-store";
 import { SupabaseDB } from "@/lib/supabase-db";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import { sanitizeString, sanitizeEmail } from "@/lib/security";
-import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "@/lib/geo-fence";
+import { DEFAULT_GEOFENCE_RADIUS_METERS, DEFAULT_VENUE, matchKnownVenueByName } from "@/lib/geo-fence";
 import {
   Swimmer,
   SwimSession,
@@ -70,7 +70,7 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
   const group_name = sanitizeString(formData.get("group_name") as string, 100) || "SwimTrack Club";
   const default_pool =
     sanitizeString(formData.get("default_pool") as string, 150) ||
-    "Bandaranayake College Swimming Pool Complex";
+    DEFAULT_VENUE.name;
   const default_duration_minutes = Math.max(
     15,
     Math.min(
@@ -79,7 +79,9 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
     )
   );
   const admin_email =
-    sanitizeEmail(formData.get("admin_email") as string) || "theekshanasudeepa4@gmail.com";
+    sanitizeEmail(formData.get("admin_email") as string) ||
+    process.env.ADMIN_EMAIL?.trim() ||
+    "admin@example.com";
   const clampInt = (raw: FormDataEntryValue | null, fallback: number, min: number, max: number) => {
     const n = parseInt(String(raw ?? ""), 10);
     return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
@@ -92,10 +94,10 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
   const rawLng = parseFloat(String(formData.get("default_pool_longitude") ?? ""));
   const default_pool_latitude = Number.isFinite(rawLat)
     ? Number(rawLat.toFixed(6))
-    : matchedVenue?.latitude ?? 7.0917;
+    : matchedVenue?.latitude ?? DEFAULT_VENUE.latitude;
   const default_pool_longitude = Number.isFinite(rawLng)
     ? Number(rawLng.toFixed(6))
-    : matchedVenue?.longitude ?? 79.9996;
+    : matchedVenue?.longitude ?? DEFAULT_VENUE.longitude;
   const default_pool_radius = clampInt(
     formData.get("default_pool_radius"),
     matchedVenue?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS,

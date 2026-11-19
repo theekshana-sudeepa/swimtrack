@@ -57,7 +57,7 @@ describe("Portal Server Actions (End-to-End Security & Integrity)", () => {
       date: todayColombo,
       start_time: "00:00:00",
       end_time: "23:59:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
     });
   }
 
@@ -102,7 +102,7 @@ describe("Portal Server Actions (End-to-End Security & Integrity)", () => {
     const wrongPinRes = await selfCheckInWithGeofenceAction(
       tokenA,
       session.id,
-      { latitude: 7.0917, longitude: 79.9996, accuracy: 10, positionAgeMs: 500 },
+      { latitude: 6.9056, longitude: 79.8614, accuracy: 10, positionAgeMs: 500 },
       chalRes.challenge,
       "0000"
     );
@@ -113,7 +113,7 @@ describe("Portal Server Actions (End-to-End Security & Integrity)", () => {
     const okRes = await selfCheckInWithGeofenceAction(
       tokenA,
       session.id,
-      { latitude: 7.0917, longitude: 79.9996, accuracy: 10, positionAgeMs: 500 },
+      { latitude: 6.9056, longitude: 79.8614, accuracy: 10, positionAgeMs: 500 },
       chalRes.challenge,
       "2468"
     );
@@ -124,7 +124,7 @@ describe("Portal Server Actions (End-to-End Security & Integrity)", () => {
     const replayRes = await selfCheckInWithGeofenceAction(
       tokenA,
       session.id,
-      { latitude: 7.0917, longitude: 79.9996, accuracy: 10, positionAgeMs: 500 },
+      { latitude: 6.9056, longitude: 79.8614, accuracy: 10, positionAgeMs: 500 },
       chalRes.challenge,
       "2468"
     );
@@ -158,7 +158,7 @@ describe("Portal Server Actions (End-to-End Security & Integrity)", () => {
       date: "2099-12-15",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
     });
     const allowed = await submitExcuseAction(token, futureSession.id, "declare", "Family wedding");
     expect(allowed.success).toBe(true);

@@ -206,9 +206,9 @@ export async function sendTestAdminAlertAction(testEmail?: string) {
 
   const mockSwimmer = {
     id: "test-new-swimmer",
-    full_name: "Laki Polla",
-    nickname: "Polla King",
-    email: "lakipolla@pollamail.com",
+    full_name: "Kasun Perera",
+    nickname: "Snooze Captain",
+    email: "kasun@example.test",
     phone: "+94 77 123 4567",
     join_date: new Date().toISOString().split("T")[0],
     status: "active" as const,

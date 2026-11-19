@@ -34,7 +34,7 @@ export default function PublicLandingPage() {
             <ThemeToggle />
 
             <a
-              href="https://github.com/ThikkaBro/SwimTrack"
+              href="https://github.com/theekshana-sudeepa/SwimTrack"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border bg-card/60 hover:bg-card text-foreground transition-all"
@@ -286,7 +286,7 @@ export default function PublicLandingPage() {
               Admin Login
             </Link>
             <a
-              href="https://github.com/ThikkaBro/SwimTrack"
+              href="https://github.com/theekshana-sudeepa/SwimTrack"
               target="_blank"
               rel="noreferrer"
               className="hover:text-foreground transition-colors"

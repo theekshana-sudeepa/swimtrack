@@ -57,7 +57,7 @@ describe("Reminder Service and Duplicate Protection", () => {
     const swimmer = DataStore.getSwimmerById("11111111-1111-1111-1111-111111111101")!;
     const res = await sendAdminNewSwimmerAlert({
       swimmer,
-      overrideAdminEmail: "theekshanasudeepa4@gmail.com",
+      overrideAdminEmail: "admin@example.test",
     });
     expect(res.success).toBe(true);
     expect(res.messageId).toBeDefined();

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
 -- Insert default application settings
 INSERT INTO public.app_settings (key, value, description)
 VALUES 
-    ('general', '{"group_name": "SwimTrack Club", "default_pool": "Bandaranayake College Swimming Pool Complex, Gampaha", "default_duration_minutes": 60, "timezone": "Asia/Colombo"}', 'General club preferences'),
+    ('general', '{"group_name": "SwimTrack Club", "default_pool": "Royal College Aquatic Complex, Colombo", "default_duration_minutes": 60, "timezone": "Asia/Colombo"}', 'General club preferences'),
     ('reminders', '{"auto_reminders_enabled": true, "reminder_hours_before": 24, "default_message": "Don''t forget your swim session tomorrow! Bring your goggles and towel."}', 'Email reminder preferences')
 ON CONFLICT (key) DO NOTHING;
 

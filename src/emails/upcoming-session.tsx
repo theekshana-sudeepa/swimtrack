@@ -28,10 +28,10 @@ export default function UpcomingSessionEmail({
   sessionTitle = "Saturday Morning Endurance Squad",
   dateStr = "Saturday, November 7, 2026",
   timeStr = "06:30 AM – 08:00 AM",
-  location = "Bandaranayake College Swimming Pool Complex, Gampaha",
+  location = "Royal College Aquatic Complex, Colombo",
   customMessage = "Friendly reminder for our upcoming swim session! Bring your goggles, cap, and hydration.",
-  portalUrl = "https://swim-track-wine.vercel.app/portal#pool-radar",
-  optOutUrl = "https://swimtrack.app/reminders/opt-out",
+  portalUrl = "https://swimtrack.example.com/portal#pool-radar",
+  optOutUrl = "https://swimtrack.example.com/reminders/opt-out",
 }: UpcomingSessionEmailProps) {
   return (
     <Html lang="en">

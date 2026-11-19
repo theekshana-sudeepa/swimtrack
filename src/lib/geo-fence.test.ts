@@ -11,28 +11,28 @@ import { parseLateInfo } from "./attendance-calculator";
 
 describe("Geofence Calculations & Anti-Cheat Rules", () => {
   it("calculates accurate distances using the Haversine formula", () => {
-    // Bandaranayake College Swimming Pool Complex coordinates
-    const bndLat = 7.0917;
-    const bndLng = 79.9996;
+    // Royal College Aquatic Complex demo coordinates
+    const primaryLat = 6.9056;
+    const primaryLng = 79.8614;
 
     // 0 distance at the same point
-    const zeroDist = calculateHaversineDistance(bndLat, bndLng, bndLat, bndLng);
+    const zeroDist = calculateHaversineDistance(primaryLat, primaryLng, primaryLat, primaryLng);
     expect(zeroDist).toBe(0);
 
-    // Small step (approx 15-20 meters away on the pool deck)
+    // Small step (approx 15-25 meters away on the pool deck)
     const smallStep = calculateHaversineDistance(
-      bndLat,
-      bndLng,
-      bndLat + 0.00015,
-      bndLng + 0.00015
+      primaryLat,
+      primaryLng,
+      primaryLat + 0.00015,
+      primaryLng + 0.00015
     );
     expect(smallStep).toBeGreaterThan(15);
     expect(smallStep).toBeLessThan(35);
 
-    // Ranaviru Apparels Yakkala (~4.2 km away)
-    const farDist = calculateHaversineDistance(bndLat, bndLng, 7.0785, 80.036);
+    // Sugathadasa Stadium Swimming Pool (~4.9 km away)
+    const farDist = calculateHaversineDistance(primaryLat, primaryLng, 6.9491, 79.8689);
     expect(farDist).toBeGreaterThan(3500);
-    expect(farDist).toBeLessThan(5000);
+    expect(farDist).toBeLessThan(6000);
   });
 
   it("resolves venue coordinates from session location text", () => {
@@ -42,32 +42,32 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
       date: "2026-11-08",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
 
     const venue = getSessionVenueCoordinates(mockSession);
-    expect(venue.name).toContain("Bandaranayake");
-    expect(venue.latitude).toBeCloseTo(7.0917, 3);
+    expect(venue.name).toContain("Royal College Aquatic Complex");
+    expect(venue.latitude).toBeCloseTo(6.9056, 3);
     expect(venue.radiusMeters).toBe(DEFAULT_GEOFENCE_RADIUS_METERS);
   });
 
-  it("resolves Ranaviru Apparels Swimming Pool Yakkala coordinates", () => {
+  it("resolves Sugathadasa Stadium Swimming Pool Colombo coordinates", () => {
     const mockSession: SwimSession = {
       id: "sess-2",
       title: "Evening Drills",
       date: "2026-11-08",
       start_time: "17:00:00",
       end_time: "18:30:00",
-      location: "Ranaviru Apparels Swimming Pool, Yakkala",
+      location: "Sugathadasa Stadium Swimming Pool, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
 
     const venue = getSessionVenueCoordinates(mockSession);
-    expect(venue.name).toContain("Ranaviru");
-    expect(venue.latitude).toBeCloseTo(7.0785, 3);
+    expect(venue.name).toContain("Sugathadasa");
+    expect(venue.latitude).toBeCloseTo(6.9491, 3);
     expect(venue.radiusMeters).toBe(DEFAULT_GEOFENCE_RADIUS_METERS);
   });
 
@@ -78,14 +78,14 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
       date: "2026-11-08",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
 
     const res = validateGeofenceCheckin({
-      userLat: 7.0917,
-      userLng: 79.9996,
+      userLat: 6.9056,
+      userLng: 79.8614,
       accuracy: 65, // Too coarse (e.g. cellular tower estimate)
       clientTimestamp: Date.now(),
       session: mockSession,
@@ -103,15 +103,15 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
       date: "2026-11-08",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
 
     // User is ~125m away (outside the 75m pool zone)
     const res = validateGeofenceCheckin({
-      userLat: 7.0917 + 0.0008,
-      userLng: 79.9996 + 0.0008,
+      userLat: 6.9056 + 0.0008,
+      userLng: 79.8614 + 0.0008,
       accuracy: 10,
       clientTimestamp: Date.now(),
       session: mockSession,
@@ -129,15 +129,15 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
       date: "2026-11-08",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
 
     // User is ~15m inside the pool complex
     const res = validateGeofenceCheckin({
-      userLat: 7.0917 + 0.0001,
-      userLng: 79.9996 + 0.0001,
+      userLat: 6.9056 + 0.0001,
+      userLng: 79.8614 + 0.0001,
       accuracy: 8,
       clientTimestamp: Date.now(),
       session: mockSession,
@@ -164,8 +164,8 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
 
     // Standing exactly on the DEFAULT pool must NOT validate an away-venue session
     const res = validateGeofenceCheckin({
-      userLat: 7.0917,
-      userLng: 79.9996,
+      userLat: 6.9056,
+      userLng: 79.8614,
       accuracy: 8,
       clientTimestamp: Date.now(),
       session: unknownVenue,
@@ -183,13 +183,13 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
       date: "2026-11-08",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
     const res = validateGeofenceCheckin({
-      userLat: 7.0917 + 0.0003,
-      userLng: 79.9996,
+      userLat: 6.9056 + 0.0003,
+      userLng: 79.8614,
       accuracy: 40,
       clientTimestamp: Date.now(),
       session,
@@ -205,13 +205,13 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
       date: "2026-11-08",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
     for (const bad of [
-      { userLat: NaN, userLng: 79.9996 },
-      { userLat: 7.0917, userLng: 999 },
+      { userLat: NaN, userLng: 79.8614 },
+      { userLat: 6.9056, userLng: 999 },
     ]) {
       const res = validateGeofenceCheckin({
         ...bad,
@@ -232,13 +232,13 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
       date: "2026-11-08",
       start_time: "06:30:00",
       end_time: "08:00:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
     const res = validateGeofenceCheckin({
-      userLat: 7.0917,
-      userLng: 79.9996,
+      userLat: 6.9056,
+      userLng: 79.8614,
       accuracy: 8,
       clientTimestamp: Date.now() - 5 * 60_000,
       session,
@@ -254,14 +254,14 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
       date: "2026-11-08",
       start_time: "00:00:00", // guarantees current Colombo time is past start
       end_time: "23:59:00",
-      location: "Bandaranayake College Swimming Pool Complex, Gampaha",
+      location: "Royal College Aquatic Complex, Colombo",
       status: "scheduled",
       is_finalized: false,
     };
 
     const res = validateGeofenceCheckin({
-      userLat: 7.0917,
-      userLng: 79.9996,
+      userLat: 6.9056,
+      userLng: 79.8614,
       accuracy: 8,
       clientTimestamp: Date.now(),
       session: earlyMorningSession,

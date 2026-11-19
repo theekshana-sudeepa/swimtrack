@@ -81,7 +81,7 @@ export function ReminderClient({
   const [isSending, setIsSending] = React.useState(false);
   const [isBroadcastingPassGuide, setIsBroadcastingPassGuide] = React.useState(false);
   const [isTestSending, setIsTestSending] = React.useState(false);
-  const [testEmailAddress, setTestEmailAddress] = React.useState("theekshanasudeepa4@gmail.com");
+  const [testEmailAddress, setTestEmailAddress] = React.useState("");
   const [testTemplate, setTestTemplate] = React.useState<
     "pass-setup" | "reminder" | "welcome" | "admin-alert"
   >("pass-setup");
@@ -530,10 +530,10 @@ export function ReminderClient({
                     📋 Member Credentials
                   </div>
                   <div className="text-muted-foreground">
-                    <strong>Full Name:</strong> Laki Polla (&ldquo;Polla King&rdquo;)
+                    <strong>Full Name:</strong> Kasun Perera (&ldquo;Snooze Captain&rdquo;)
                   </div>
                   <div className="text-muted-foreground">
-                    <strong>Email:</strong> lakipolla@pollamail.com
+                    <strong>Email:</strong> kasun@example.test
                   </div>
                   <div className="text-muted-foreground">
                     <strong>WhatsApp:</strong> +94 77 123 4567
@@ -602,7 +602,7 @@ export function ReminderClient({
                     <strong>Time:</strong> {selectedSession ? `${formatTime(selectedSession.start_time)} – ${formatTime(selectedSession.end_time)}` : "06:30 AM – 08:00 AM"}
                   </div>
                   <div className="text-muted-foreground">
-                    <strong>Location:</strong> {selectedSession ? selectedSession.location : "Bandaranayake College Swimming Pool Complex, Gampaha"}
+                    <strong>Location:</strong> {selectedSession ? selectedSession.location : "Royal College Aquatic Complex, Colombo"}
                   </div>
                 </div>
 

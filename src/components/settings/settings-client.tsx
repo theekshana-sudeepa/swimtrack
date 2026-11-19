@@ -27,7 +27,12 @@ import {
   exportDatabaseBackupAction,
   resetToDemoAction,
 } from "@/actions/settings-actions";
-import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "@/lib/geo-fence";
+import {
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  DEFAULT_VENUE,
+  PRESET_VENUES,
+  matchKnownVenueByName,
+} from "@/lib/geo-fence";
 import { cn } from "@/lib/utils";
 import { AppSetting } from "@/types/database";
 import { toast } from "sonner";
@@ -49,20 +54,20 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     (generalVal?.group_name as string) || "SwimTrack Club"
   );
   const [defaultPool, setDefaultPool] = React.useState(
-    (generalVal?.default_pool as string) || "Bandaranayake College Swimming Pool Complex, Gampaha"
+    (generalVal?.default_pool as string) || DEFAULT_VENUE.name
   );
   const initialMatchedVenue = matchKnownVenueByName(
-    (generalVal?.default_pool as string) || "Bandaranayake College Swimming Pool Complex, Gampaha"
+    (generalVal?.default_pool as string) || DEFAULT_VENUE.name
   );
   const [defaultPoolLat, setDefaultPoolLat] = React.useState<number>(
     typeof generalVal?.default_pool_latitude === "number"
       ? (generalVal.default_pool_latitude as number)
-      : initialMatchedVenue?.latitude ?? 7.0917
+      : initialMatchedVenue?.latitude ?? DEFAULT_VENUE.latitude
   );
   const [defaultPoolLng, setDefaultPoolLng] = React.useState<number>(
     typeof generalVal?.default_pool_longitude === "number"
       ? (generalVal.default_pool_longitude as number)
-      : initialMatchedVenue?.longitude ?? 79.9996
+      : initialMatchedVenue?.longitude ?? DEFAULT_VENUE.longitude
   );
   const [defaultPoolRadius, setDefaultPoolRadius] = React.useState<number>(
     typeof generalVal?.default_pool_radius === "number"
@@ -75,7 +80,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     String(generalVal?.default_duration_minutes || "60")
   );
   const [adminEmail, setAdminEmail] = React.useState(
-    (generalVal?.admin_email as string) || "theekshanasudeepa4@gmail.com"
+    (generalVal?.admin_email as string) || ""
   );
   const [lateThreshold, setLateThreshold] = React.useState(
     String(generalVal?.late_threshold_minutes ?? "10")
@@ -300,7 +305,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
                   setDefaultPoolRadius(matched.radiusMeters);
                 }
               }}
-              placeholder="e.g. Bandaranayake College Swimming Pool Complex, Gampaha"
+              placeholder={`e.g. ${DEFAULT_VENUE.name}`}
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
             />
             <input type="hidden" name="default_pool_latitude" value={defaultPoolLat} />
@@ -325,41 +330,27 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDefaultPool("Bandaranayake College Swimming Pool Complex, Gampaha");
-                    setDefaultPoolLat(7.0917);
-                    setDefaultPoolLng(79.9996);
-                    setDefaultPoolRadius(DEFAULT_GEOFENCE_RADIUS_METERS);
-                  }}
-                  className={cn(
-                    "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
-                    Math.abs(defaultPoolLat - 7.0917) < 0.0002
-                      ? "bg-aqua/20 text-aqua border-aqua/40"
-                      : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
-                  )}
-                >
-                  Bandaranayake ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDefaultPool("Ranaviru Apparels Swimming Pool, Yakkala");
-                    setDefaultPoolLat(7.0785);
-                    setDefaultPoolLng(80.036);
-                    setDefaultPoolRadius(DEFAULT_GEOFENCE_RADIUS_METERS);
-                  }}
-                  className={cn(
-                    "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
-                    Math.abs(defaultPoolLat - 7.0785) < 0.0002
-                      ? "bg-aqua/20 text-aqua border-aqua/40"
-                      : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
-                  )}
-                >
-                  Ranaviru Apparels ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
-                </button>
+                {PRESET_VENUES.map((venue) => (
+                  <button
+                    key={venue.key}
+                    type="button"
+                    onClick={() => {
+                      setDefaultPool(venue.name);
+                      setDefaultPoolLat(venue.latitude);
+                      setDefaultPoolLng(venue.longitude);
+                      setDefaultPoolRadius(venue.radiusMeters);
+                    }}
+                    className={cn(
+                      "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
+                      Math.abs(defaultPoolLat - venue.latitude) < 0.0002 &&
+                        Math.abs(defaultPoolLng - venue.longitude) < 0.0002
+                        ? "bg-aqua/20 text-aqua border-aqua/40"
+                        : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
+                    )}
+                  >
+                    {venue.shortName} ({venue.radiusMeters}m)
+                  </button>
+                ))}
 
                 <button
                   type="button"
@@ -453,7 +444,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
               name="admin_email"
               value={adminEmail}
               onChange={(e) => setAdminEmail(e.target.value)}
-              placeholder="theekshanasudeepa4@gmail.com"
+              placeholder="admin@example.com"
               className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
             />
             <p className="text-[11px] text-muted-foreground mt-1">

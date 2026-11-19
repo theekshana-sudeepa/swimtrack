@@ -17,25 +17,92 @@ export interface VenueLocation {
   radiusMeters: number;
 }
 
+export interface PresetVenue extends VenueLocation {
+  key: string;
+  shortName: string;
+}
+
+const FALLBACK_PRESET_VENUES: PresetVenue[] = [
+  {
+    key: "royal_aquatic",
+    name: "Royal College Aquatic Complex, Colombo",
+    shortName: "Royal Aquatic (Colombo)",
+    latitude: 6.9056,
+    longitude: 79.8614,
+    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
+  },
+  {
+    key: "sugathadasa_pool",
+    name: "Sugathadasa Stadium Swimming Pool, Colombo",
+    shortName: "Sugathadasa Pool (Colombo)",
+    latitude: 6.9491,
+    longitude: 79.8689,
+    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
+  },
+];
+
+function parseEnvPresetVenues(): PresetVenue[] {
+  const raw = process.env.NEXT_PUBLIC_PRESET_VENUES;
+  if (!raw) return FALLBACK_PRESET_VENUES;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return FALLBACK_PRESET_VENUES;
+    const valid: PresetVenue[] = parsed
+      .filter(
+        (v): v is Partial<PresetVenue> & { name: string; latitude: number; longitude: number } =>
+          Boolean(
+            v &&
+              typeof v.name === "string" &&
+              v.name.trim().length > 0 &&
+              typeof v.latitude === "number" &&
+              Number.isFinite(v.latitude) &&
+              typeof v.longitude === "number" &&
+              Number.isFinite(v.longitude)
+          )
+      )
+      .map((v, idx) => ({
+        key:
+          typeof v.key === "string" && v.key.trim()
+            ? v.key.trim()
+            : `custom_venue_${idx + 1}`,
+        name: v.name.trim(),
+        shortName:
+          typeof v.shortName === "string" && v.shortName.trim()
+            ? v.shortName.trim()
+            : v.name.trim().split(",")[0],
+        latitude: v.latitude,
+        longitude: v.longitude,
+        radiusMeters:
+          typeof v.radiusMeters === "number" && Number.isFinite(v.radiusMeters)
+            ? Math.min(250, Math.max(25, Math.round(v.radiusMeters)))
+            : DEFAULT_GEOFENCE_RADIUS_METERS,
+      }));
+    return valid.length > 0 ? valid : FALLBACK_PRESET_VENUES;
+  } catch {
+    return FALLBACK_PRESET_VENUES;
+  }
+}
+
 /**
- * Registry of known aquatic centers & swimming pools in Sri Lanka.
- * Default radius (DEFAULT_GEOFENCE_RADIUS_METERS) comfortably covers the pool deck,
- * spectator stands and changing facilities while excluding neighbouring streets.
+ * Registry of preset swimming venues.
+ * Can be customized privately via NEXT_PUBLIC_PRESET_VENUES JSON env var;
+ * falls back to public demonstration pools when unconfigured.
  */
-export const KNOWN_VENUES: Record<string, VenueLocation> = {
-  bandaranayake: {
-    name: "Bandaranayake College Swimming Pool Complex, Gampaha",
-    latitude: 7.0917,
-    longitude: 79.9996,
-    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-  },
-  ranaviru_apparels: {
-    name: "Ranaviru Apparels Swimming Pool, Yakkala",
-    latitude: 7.0785,
-    longitude: 80.036,
-    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-  },
-};
+export const PRESET_VENUES: PresetVenue[] = parseEnvPresetVenues();
+
+export const DEFAULT_VENUE: PresetVenue = PRESET_VENUES[0];
+
+export const KNOWN_VENUES: Record<string, VenueLocation> = Object.fromEntries(
+  PRESET_VENUES.map((v) => [
+    v.key,
+    {
+      name: v.name,
+      latitude: v.latitude,
+      longitude: v.longitude,
+      radiusMeters: v.radiusMeters,
+    },
+  ])
+);
 
 /**
  * Matches a location name string against known squad swimming venues.
@@ -43,16 +110,22 @@ export const KNOWN_VENUES: Record<string, VenueLocation> = {
 export function matchKnownVenueByName(locationName?: string | null): VenueLocation | null {
   const loc = (locationName || "").toLowerCase().trim();
   if (!loc) return null;
-  for (const venue of Object.values(KNOWN_VENUES)) {
+  for (const venue of PRESET_VENUES) {
     const venueLower = venue.name.toLowerCase();
+    const shortLower = venue.shortName.toLowerCase();
+    const primaryToken = venueLower.split(/[\s,]+/)[0] || "";
     if (
       loc.includes(venueLower) ||
       venueLower.includes(loc) ||
-      (loc.includes("bandaranayake") && venueLower.includes("bandaranayake")) ||
-      (loc.includes("ranaviru") && venueLower.includes("ranaviru")) ||
-      (loc.includes("yakkala") && venueLower.includes("yakkala"))
+      loc.includes(shortLower) ||
+      (primaryToken.length >= 4 && loc.includes(primaryToken))
     ) {
-      return venue;
+      return {
+        name: venue.name,
+        latitude: venue.latitude,
+        longitude: venue.longitude,
+        radiusMeters: venue.radiusMeters,
+      };
     }
   }
   return null;
@@ -81,7 +154,7 @@ export function resolveSessionVenue(session: SwimSession): VenueLocation | null 
  * unknown. NEVER use this for validating a check-in - use resolveSessionVenue().
  */
 export function getSessionVenueCoordinates(session: SwimSession): VenueLocation {
-  return resolveSessionVenue(session) ?? KNOWN_VENUES.bandaranayake;
+  return resolveSessionVenue(session) ?? DEFAULT_VENUE;
 }
 
 /**
