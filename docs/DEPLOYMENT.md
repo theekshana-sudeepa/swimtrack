@@ -56,7 +56,7 @@ flowchart TD
 ### 3. Create the Sole Administrator Account
 1. In the left navigation, go to **Authentication > Users**.
 2. Click **Add user** > **Create user**:
-   - **Email**: Enter your personal administrator email (e.g., `theekshanasudeepa@gmail.com`).
+   - **Email**: Enter your personal administrator email (e.g., `admin@yourdomain.com`).
    - **Password**: Enter a secure admin password.
    - **Auto Confirm Email**: Checked / Enabled.
 3. Click **Create user**.

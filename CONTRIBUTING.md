@@ -13,13 +13,13 @@ SwimTrack is a personal, non-commercial open-source web application designed for
 
 ### 2. Local Setup
 ```bash
-git clone https://github.com/ThikkaBro/SwimTrack.git
+git clone https://github.com/theekshana-sudeepa/SwimTrack.git
 cd SwimTrack
 npm install
 npm run dev
 ```
 
-The application will run immediately in standalone demo mode at `http://localhost:3000`. You can sign in using the **Instant Demo Admin Sign In** button or `admin@example.com` / `swimtrack2026`.
+The application will run immediately in local standalone demo mode at `http://localhost:3000`. Configure `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env.local` (copied from `.env.example`) to sign into the Admin Control Room.
 
 ### 3. Running Checks
 Before submitting a pull request, ensure all verification checks pass:
