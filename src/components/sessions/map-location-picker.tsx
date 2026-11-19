@@ -13,7 +13,12 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "@/lib/geo-fence";
+import {
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  DEFAULT_VENUE,
+  PRESET_VENUES as GEO_PRESET_VENUES,
+  matchKnownVenueByName,
+} from "@/lib/geo-fence";
 import { toast } from "sonner";
 import type {
   Map as LeafletMap,
@@ -42,22 +47,7 @@ interface MapLocationPickerModalProps {
   confirmLabel?: string;
 }
 
-export const PRESET_VENUES = [
-  {
-    name: "Bandaranayake College Swimming Pool Complex, Gampaha",
-    shortName: "Bandaranayake Pool (Gampaha)",
-    latitude: 7.0917,
-    longitude: 79.9996,
-    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-  },
-  {
-    name: "Ranaviru Apparels Swimming Pool, Yakkala",
-    shortName: "Ranaviru Apparels Pool (Yakkala)",
-    latitude: 7.0785,
-    longitude: 80.036,
-    radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
-  },
-];
+export const PRESET_VENUES = GEO_PRESET_VENUES;
 
 interface NominatimSearchResult {
   place_id: number;
@@ -72,18 +62,16 @@ function resolveInitialCoordinates(initialLocation?: MapLocationPickerModalProps
   const lat =
     initialLocation?.latitude != null && Number.isFinite(Number(initialLocation.latitude))
       ? Number(initialLocation.latitude)
-      : matched?.latitude ?? 7.0917;
+      : matched?.latitude ?? DEFAULT_VENUE.latitude;
   const lng =
     initialLocation?.longitude != null && Number.isFinite(Number(initialLocation.longitude))
       ? Number(initialLocation.longitude)
-      : matched?.longitude ?? 79.9996;
+      : matched?.longitude ?? DEFAULT_VENUE.longitude;
   const radius =
     initialLocation?.radiusMeters != null && Number.isFinite(Number(initialLocation.radiusMeters))
       ? Math.min(250, Math.max(25, Number(initialLocation.radiusMeters)))
       : matched?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS;
-  const name =
-    initialLocation?.name?.trim() ||
-    "Bandaranayake College Swimming Pool Complex, Gampaha";
+  const name = initialLocation?.name?.trim() || DEFAULT_VENUE.name;
 
   return { name, lat, lng, radius };
 }
@@ -110,14 +98,20 @@ export function MapLocationPickerModal({
   const markerRef = React.useRef<LeafletMarker | null>(null);
   const circleRef = React.useRef<LeafletCircle | null>(null);
 
+  const initName = initialLocation?.name;
+  const initLat = initialLocation?.latitude;
+  const initLng = initialLocation?.longitude;
+  const initRadius = initialLocation?.radiusMeters;
+
   const initial = React.useMemo(
-    () => resolveInitialCoordinates(initialLocation),
-    [
-      initialLocation?.name,
-      initialLocation?.latitude,
-      initialLocation?.longitude,
-      initialLocation?.radiusMeters,
-    ]
+    () =>
+      resolveInitialCoordinates({
+        name: initName,
+        latitude: initLat,
+        longitude: initLng,
+        radiusMeters: initRadius,
+      }),
+    [initName, initLat, initLng, initRadius]
   );
 
   const [locationName, setLocationName] = React.useState(initial.name);
@@ -146,11 +140,10 @@ export function MapLocationPickerModal({
   // Re-synchronize state whenever modal opens or initialLocation changes
   React.useEffect(() => {
     if (!isOpen) return;
-    const resolved = resolveInitialCoordinates(initialLocation);
-    setLocationName(resolved.name);
-    setLat(resolved.lat);
-    setLng(resolved.lng);
-    setRadius(resolved.radius);
+    setLocationName(initial.name);
+    setLat(initial.lat);
+    setLng(initial.lng);
+    setRadius(initial.radius);
     setHasCustomNameEdit(false);
     setSearchQuery("");
     setSearchResults([]);
@@ -603,7 +596,7 @@ export function MapLocationPickerModal({
                         handleSearchPlace();
                       }
                     }}
-                    placeholder="Search pool, school, or town (e.g. Gampaha, Yakkala, Colombo)..."
+                    placeholder="Search pool, aquatic center, or city (e.g. Colombo, Kandy, Galle)..."
                     className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-border bg-card text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-aqua"
                   />
                 </div>
@@ -681,7 +674,7 @@ export function MapLocationPickerModal({
                   setLocationName(e.target.value);
                   setHasCustomNameEdit(true);
                 }}
-                placeholder="e.g. Ranaviru Apparels Swimming Pool, Yakkala"
+                placeholder="e.g. Royal College Aquatic Complex, Colombo"
                 className="w-full px-3 py-2 rounded-xl border border-border bg-secondary/50 text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-aqua"
               />
             </div>
