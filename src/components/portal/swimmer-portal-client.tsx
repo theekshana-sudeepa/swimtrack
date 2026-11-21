@@ -26,7 +26,7 @@ import {
   Award,
   LogOut,
 } from "lucide-react";
-import { Swimmer, SwimSession, SquadMessage } from "@/types/database";
+import { Swimmer, SwimSession, SquadMessage, PoolVenue } from "@/types/database";
 import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
 import {
@@ -51,6 +51,7 @@ interface SwimmerPortalClientProps {
   swimmer: Swimmer;
   token: string;
   nextSession: SwimSession | null;
+  savedVenues?: PoolVenue[];
   history: HistoryRecord[];
   initialMessages: SquadMessage[];
   squadFriends?: Swimmer[];
@@ -65,6 +66,7 @@ export function SwimmerPortalClient({
   swimmer,
   token,
   nextSession,
+  savedVenues = [],
   history,
   initialMessages,
   squadFriends = [],
@@ -466,6 +468,7 @@ export function SwimmerPortalClient({
         {nextSession && (
           <PoolRadarCheckin
             session={nextSession}
+            savedVenues={savedVenues}
             token={token}
             existingAttendance={currentAttendance}
             onCheckedIn={(record) => {

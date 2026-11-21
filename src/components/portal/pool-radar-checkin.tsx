@@ -16,9 +16,8 @@ import {
   Sparkles,
   HelpCircle,
 } from "lucide-react";
-import { SwimSession, AttendanceRecord } from "@/types/database";
+import { SwimSession, AttendanceRecord, PoolVenue } from "@/types/database";
 import {
-  KNOWN_VENUES,
   MAX_GPS_ACCURACY_METERS,
   getSessionVenueCoordinates,
   calculateHaversineDistance,
@@ -34,6 +33,7 @@ import { cn, formatTime } from "@/lib/utils";
 
 interface PoolRadarCheckinProps {
   session: SwimSession;
+  savedVenues?: PoolVenue[];
   token: string;
   existingAttendance?: AttendanceRecord | null;
   onCheckedIn?: (record: AttendanceRecord) => void;
@@ -48,13 +48,14 @@ type GpsState =
 
 export function PoolRadarCheckin({
   session,
+  savedVenues = [],
   token,
   existingAttendance,
   onCheckedIn,
 }: PoolRadarCheckinProps) {
   const venue = React.useMemo<VenueLocation>(() => {
-    return getSessionVenueCoordinates(session);
-  }, [session]);
+    return getSessionVenueCoordinates(session, savedVenues);
+  }, [session, savedVenues]);
 
   const [attendanceRecord, setAttendanceRecord] =
     React.useState<AttendanceRecord | null>(existingAttendance || null);

@@ -50,6 +50,7 @@ export default async function AttendancePage({
 
   const attendanceRecords = DataStore.getSessionAttendance(targetSession.id);
   const auditLogs = DataStore.getAttendanceAuditLogs({ sessionId: targetSession.id });
+  const savedVenues = DataStore.getSavedVenues();
 
   return (
     <AttendanceClient
@@ -57,6 +58,7 @@ export default async function AttendancePage({
       allSessions={allSessions}
       initialAttendance={attendanceRecords}
       auditLogs={auditLogs}
+      savedVenues={savedVenues}
     />
   );
 }

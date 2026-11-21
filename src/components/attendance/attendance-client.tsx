@@ -36,6 +36,7 @@ import {
   AttendanceStatus,
   SwimSession,
   AttendanceAuditLog,
+  PoolVenue,
 } from "@/types/database";
 import { getSwimmerSquadRank } from "@/lib/squad-ranks";
 import {
@@ -77,6 +78,7 @@ interface AttendanceClientProps {
   allSessions: SwimSession[];
   initialAttendance: AttendanceRecord[];
   auditLogs: AttendanceAuditLog[];
+  savedVenues?: PoolVenue[];
 }
 
 export function AttendanceClient({
@@ -84,6 +86,7 @@ export function AttendanceClient({
   allSessions,
   initialAttendance,
   auditLogs: initialLogs,
+  savedVenues = [],
 }: AttendanceClientProps) {
   const router = useRouter();
 
@@ -91,7 +94,12 @@ export function AttendanceClient({
   const [isFinalized, setIsFinalized] = React.useState(session.is_finalized);
   const [sessionStatus, setSessionStatus] = React.useState(session.status);
   const [currentSession, setCurrentSession] = React.useState<SwimSession>(session);
+  const [venues, setVenues] = React.useState<PoolVenue[]>(savedVenues);
   const [showMapPicker, setShowMapPicker] = React.useState(false);
+
+  React.useEffect(() => {
+    setVenues(savedVenues);
+  }, [savedVenues]);
 
   React.useEffect(() => {
     setIsFinalized(session.is_finalized);
@@ -2052,13 +2060,17 @@ export function AttendanceClient({
           onClose={() => setShowMapPicker(false)}
           title={`Change Pool Location — ${currentSession.title}`}
           confirmLabel="Save Session Pool Location"
+          savedVenues={venues}
+          allowSaveAsVenue
+          showApplyToSeries={Boolean(currentSession.series_id)}
           initialLocation={(() => {
-            const venue = getSessionVenueCoordinates(currentSession);
+            const venue = getSessionVenueCoordinates(currentSession, venues);
             return {
               name: currentSession.location || venue.name,
               latitude: currentSession.latitude ?? venue.latitude,
               longitude: currentSession.longitude ?? venue.longitude,
               radiusMeters: currentSession.geofence_radius ?? venue.radiusMeters,
+              venueId: currentSession.venue_id ?? null,
             };
           })()}
           onSelectLocation={async (data) => {
@@ -2067,6 +2079,10 @@ export function AttendanceClient({
               latitude: data.latitude,
               longitude: data.longitude,
               geofence_radius: data.radiusMeters,
+              venue_id: data.venueId ?? null,
+              saveAsVenue: data.saveAsVenue,
+              shortName: data.shortName,
+              applyToSeries: data.applyToSeries,
             });
             if (!res.success) {
               toast.error(res.error || "Failed to update pool location.");
@@ -2075,12 +2091,24 @@ export function AttendanceClient({
             setCurrentSession((prev) => ({
               ...prev,
               location: data.name,
+              venue_id: res.session?.venue_id ?? data.venueId ?? null,
               latitude: data.latitude,
               longitude: data.longitude,
               geofence_radius: data.radiusMeters,
             }));
+            if (res.venues) {
+              setVenues(res.venues);
+            }
+            const extraMsg = [
+              data.saveAsVenue ? "saved to My Swimming Places" : "",
+              res.seriesUpdatedCount
+                ? `updated ${res.seriesUpdatedCount} more upcoming session${res.seriesUpdatedCount === 1 ? "" : "s"} in series`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" • ");
             toast.success(
-              `Updated pool location to ${data.name} (${data.radiusMeters}m geofence)!`
+              `Updated pool location to ${data.name} (${data.radiusMeters}m)${extraMsg ? ` — ${extraMsg}` : ""}!`
             );
             router.refresh();
             return true;

@@ -70,12 +70,14 @@ export default async function SwimmerPortalPage({
   const messages = DataStore.getSquadMessages();
   const squadFriends = DataStore.getSwimmers({ status: "active" });
   const dashboardStats = DataStore.getDashboardStats();
+  const savedVenues = DataStore.getSavedVenues();
 
   return (
     <SwimmerPortalClient
       swimmer={swimmer}
       token={token}
       nextSession={nextSession}
+      savedVenues={savedVenues}
       history={history}
       initialMessages={messages}
       squadFriends={squadFriends}

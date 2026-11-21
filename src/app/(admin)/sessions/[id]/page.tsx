@@ -21,6 +21,7 @@ export default async function SessionDetailPage({
   const attendance = DataStore.getSessionAttendance(session.id);
   const eligibleReminders = DataStore.getEligibleReminderRecipients(session.id);
   const swimmers = DataStore.getSwimmers({ status: "all" });
+  const savedVenues = DataStore.getSavedVenues();
 
   return (
     <SessionStateReportClient
@@ -28,6 +29,7 @@ export default async function SessionDetailPage({
       attendance={attendance}
       swimmers={swimmers}
       eligibleRemindersCount={eligibleReminders.length}
+      savedVenues={savedVenues}
     />
   );
 }

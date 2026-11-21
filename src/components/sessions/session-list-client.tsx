@@ -18,8 +18,9 @@ import {
   Lock,
   Unlock,
   Trash2,
+  Star,
 } from "lucide-react";
-import { SwimSession } from "@/types/database";
+import { SwimSession, PoolVenue } from "@/types/database";
 import dynamic from "next/dynamic";
 import { SelectedLocationData } from "./map-location-picker";
 
@@ -48,21 +49,26 @@ import { toast } from "sonner";
 
 export function SessionListClient({
   initialSessions,
+  savedVenues = [],
   defaultPool = DEFAULT_VENUE.name,
   defaultPoolLatitude,
   defaultPoolLongitude,
   defaultPoolRadius,
+  defaultPoolVenueId,
   defaultDuration = 105,
 }: {
   initialSessions: SwimSession[];
+  savedVenues?: PoolVenue[];
   defaultPool?: string;
   defaultPoolLatitude?: number;
   defaultPoolLongitude?: number;
   defaultPoolRadius?: number;
+  defaultPoolVenueId?: string;
   defaultDuration?: number;
 }) {
   const router = useRouter();
   const [sessions, setSessions] = React.useState<SwimSession[]>(initialSessions);
+  const [venues, setVenues] = React.useState<PoolVenue[]>(savedVenues);
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [showCreateSingleModal, setShowCreateSingleModal] = React.useState(false);
   const [showCreateSeriesModal, setShowCreateSeriesModal] = React.useState(false);
@@ -73,27 +79,73 @@ export function SessionListClient({
     null
   );
 
-  const resolvedDefaultGeo = React.useMemo<SelectedLocationData>(() => {
-    const matched = matchKnownVenueByName(defaultPool);
+  React.useEffect(() => {
+    setVenues(savedVenues);
+  }, [savedVenues]);
+
+  const quickVenueList = React.useMemo(() => {
+    if (venues.length > 0) {
+      return venues.map((v) => ({
+        key: v.id,
+        id: v.id,
+        name: v.name,
+        shortName: v.short_name,
+        latitude: v.latitude,
+        longitude: v.longitude,
+        radiusMeters: v.radius_meters,
+        isDefault: v.is_default,
+      }));
+    }
+    return PRESET_VENUES.map((v, idx) => ({
+      key: v.key,
+      id: undefined as string | undefined,
+      name: v.name,
+      shortName: v.shortName,
+      latitude: v.latitude,
+      longitude: v.longitude,
+      radiusMeters: v.radiusMeters,
+      isDefault: idx === 0,
+    }));
+  }, [venues]);
+
+  const resolvedDefaultGeo = React.useMemo<
+    SelectedLocationData & { hasVerifiedPin: boolean }
+  >(() => {
+    const matched = matchKnownVenueByName(defaultPool, venues);
+    const defaultFromVenues = venues.find((v) => v.is_default) || venues[0];
     return {
-      name: defaultPool || DEFAULT_VENUE.name,
+      name: defaultPool || defaultFromVenues?.name || DEFAULT_VENUE.name,
       latitude:
         defaultPoolLatitude != null && Number.isFinite(Number(defaultPoolLatitude))
           ? Number(defaultPoolLatitude)
-          : matched?.latitude ?? DEFAULT_VENUE.latitude,
+          : defaultFromVenues?.latitude ?? matched?.latitude ?? DEFAULT_VENUE.latitude,
       longitude:
         defaultPoolLongitude != null && Number.isFinite(Number(defaultPoolLongitude))
           ? Number(defaultPoolLongitude)
-          : matched?.longitude ?? DEFAULT_VENUE.longitude,
+          : defaultFromVenues?.longitude ?? matched?.longitude ?? DEFAULT_VENUE.longitude,
       radiusMeters:
         defaultPoolRadius != null && Number.isFinite(Number(defaultPoolRadius))
           ? Number(defaultPoolRadius)
-          : matched?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS,
+          : defaultFromVenues?.radius_meters ??
+            matched?.radiusMeters ??
+            DEFAULT_GEOFENCE_RADIUS_METERS,
+      venueId: defaultPoolVenueId ?? defaultFromVenues?.id ?? null,
+      saveAsVenue: false,
+      hasVerifiedPin: true,
     };
-  }, [defaultPool, defaultPoolLatitude, defaultPoolLongitude, defaultPoolRadius]);
+  }, [
+    defaultPool,
+    defaultPoolLatitude,
+    defaultPoolLongitude,
+    defaultPoolRadius,
+    defaultPoolVenueId,
+    venues,
+  ]);
 
   // Custom Map Location State for geofencing
-  const [selectedGeo, setSelectedGeo] = React.useState<SelectedLocationData>(resolvedDefaultGeo);
+  const [selectedGeo, setSelectedGeo] = React.useState<
+    SelectedLocationData & { hasVerifiedPin: boolean }
+  >(resolvedDefaultGeo);
   const [showMapPicker, setShowMapPicker] = React.useState(false);
 
   React.useEffect(() => {
@@ -188,6 +240,7 @@ export function SessionListClient({
     if (res.error) {
       toast.error(res.error);
     } else {
+      if (res.venues) setVenues(res.venues);
       toast.success("Session scheduled!");
       setShowCreateSingleModal(false);
       router.refresh();
@@ -202,6 +255,7 @@ export function SessionListClient({
     if (!res.success) {
       toast.error(res.error);
     } else {
+      if (res.venues) setVenues(res.venues);
       toast.success(`Recurring series created with ${res.createdSessionsCount} sessions!`);
       setShowCreateSeriesModal(false);
       router.refresh();
@@ -348,13 +402,22 @@ export function SessionListClient({
                         type="button"
                         onClick={() => setSessionToEditLocation(session)}
                         title="Click to change pool location & geofence pin on map"
-                        className="inline-flex items-center gap-1 hover:text-aqua transition-colors group text-left"
+                        className="inline-flex flex-wrap items-center gap-1.5 hover:text-aqua transition-colors group text-left"
                       >
                         <MapPin className="w-3.5 h-3.5 text-coral group-hover:text-aqua transition-colors shrink-0" />
                         <span className="underline decoration-dotted underline-offset-2">
                           {session.location}
                         </span>
-                        <span className="text-[10px] font-bold text-aqua px-1.5 py-0.2 rounded bg-aqua/10 border border-aqua/30 ml-0.5">
+                        {session.latitude != null && session.longitude != null ? (
+                          <span className="text-[10px] font-bold font-mono text-seafoam px-1.5 py-0.2 rounded bg-seafoam/10 border border-seafoam/30">
+                            {session.geofence_radius || DEFAULT_GEOFENCE_RADIUS_METERS}m GPS
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-amber-400 px-1.5 py-0.2 rounded bg-amber-400/10 border border-amber-400/30">
+                            No GPS Pin
+                          </span>
+                        )}
+                        <span className="text-[10px] font-bold text-aqua px-1.5 py-0.2 rounded bg-aqua/10 border border-aqua/30">
                           Change Pin
                         </span>
                       </button>
@@ -555,47 +618,74 @@ export function SessionListClient({
                   value={selectedGeo.name}
                   onChange={(e) => {
                     const val = e.target.value;
-                    const matched = matchKnownVenueByName(val);
+                    const matchedVenueRecord = venues.find(
+                      (v) =>
+                        v.name.toLowerCase() === val.trim().toLowerCase() ||
+                        v.short_name.toLowerCase() === val.trim().toLowerCase()
+                    );
+                    const matched = matchKnownVenueByName(val, venues);
                     setSelectedGeo((prev) => ({
                       ...prev,
                       name: val,
+                      venueId: matchedVenueRecord?.id ?? null,
+                      saveAsVenue: false,
                       ...(matched
                         ? {
                             latitude: matched.latitude,
                             longitude: matched.longitude,
                             radiusMeters: matched.radiusMeters,
+                            hasVerifiedPin: true,
                           }
-                        : {}),
+                        : {
+                            hasVerifiedPin: false,
+                          }),
                     }));
                   }}
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
 
-                {/* Hidden inputs to submit custom GPS coordinates and geofence radius */}
-                <input type="hidden" name="latitude" value={selectedGeo.latitude} />
-                <input type="hidden" name="longitude" value={selectedGeo.longitude} />
+                {/* Hidden inputs to submit verified GPS coordinates, venue link, and geofence radius */}
+                {selectedGeo.hasVerifiedPin && (
+                  <>
+                    <input type="hidden" name="latitude" value={selectedGeo.latitude} />
+                    <input type="hidden" name="longitude" value={selectedGeo.longitude} />
+                  </>
+                )}
                 <input type="hidden" name="geofence_radius" value={selectedGeo.radiusMeters} />
+                {selectedGeo.venueId && (
+                  <input type="hidden" name="venue_id" value={selectedGeo.venueId} />
+                )}
+                {selectedGeo.saveAsVenue && (
+                  <input type="hidden" name="save_as_venue" value="true" />
+                )}
 
-                {/* Quick Presets & Map Selector Badge */}
+                {/* Saved Swimming Places & Map Selector Badge */}
                 <div className="mt-2 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span className="flex items-center gap-1 font-mono text-[10px]">
-                      <MapPin className="w-3 h-3 text-aqua shrink-0" />
-                      <span>
-                        {selectedGeo.latitude.toFixed(4)}, {selectedGeo.longitude.toFixed(4)} ({selectedGeo.radiusMeters}m geofence)
+                    {selectedGeo.hasVerifiedPin ? (
+                      <span className="flex items-center gap-1 font-mono text-[10px]">
+                        <MapPin className="w-3 h-3 text-aqua shrink-0" />
+                        <span>
+                          {selectedGeo.latitude.toFixed(4)}, {selectedGeo.longitude.toFixed(4)} ({selectedGeo.radiusMeters}m geofence)
+                        </span>
                       </span>
-                    </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-400">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>Unpinned custom name — pin on map for GPS check-in</span>
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => setShowMapPicker(true)}
-                      className="text-aqua font-bold text-[10px] hover:underline"
+                      className="text-aqua font-bold text-[10px] hover:underline shrink-0"
                     >
                       Change on Map &rarr;
                     </button>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    {PRESET_VENUES.map((venue) => (
+                    {quickVenueList.map((venue) => (
                       <button
                         key={venue.key}
                         type="button"
@@ -605,17 +695,24 @@ export function SessionListClient({
                             latitude: venue.latitude,
                             longitude: venue.longitude,
                             radiusMeters: venue.radiusMeters,
+                            venueId: venue.id ?? null,
+                            saveAsVenue: false,
+                            hasVerifiedPin: true,
                           })
                         }
                         className={cn(
-                          "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
-                          Math.abs(selectedGeo.latitude - venue.latitude) < 0.0002 &&
-                            Math.abs(selectedGeo.longitude - venue.longitude) < 0.0002
+                          "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all inline-flex items-center gap-1",
+                          selectedGeo.hasVerifiedPin &&
+                            Math.abs(selectedGeo.latitude - venue.latitude) < 0.00025 &&
+                            Math.abs(selectedGeo.longitude - venue.longitude) < 0.00025
                             ? "bg-aqua/20 text-aqua border-aqua/40"
                             : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
                         )}
                       >
-                        {venue.shortName} ({venue.radiusMeters}m)
+                        {venue.isDefault && (
+                          <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400 shrink-0" />
+                        )}
+                        <span>{venue.shortName} ({venue.radiusMeters}m)</span>
                       </button>
                     ))}
 
@@ -783,47 +880,74 @@ export function SessionListClient({
                   value={selectedGeo.name}
                   onChange={(e) => {
                     const val = e.target.value;
-                    const matched = matchKnownVenueByName(val);
+                    const matchedVenueRecord = venues.find(
+                      (v) =>
+                        v.name.toLowerCase() === val.trim().toLowerCase() ||
+                        v.short_name.toLowerCase() === val.trim().toLowerCase()
+                    );
+                    const matched = matchKnownVenueByName(val, venues);
                     setSelectedGeo((prev) => ({
                       ...prev,
                       name: val,
+                      venueId: matchedVenueRecord?.id ?? null,
+                      saveAsVenue: false,
                       ...(matched
                         ? {
                             latitude: matched.latitude,
                             longitude: matched.longitude,
                             radiusMeters: matched.radiusMeters,
+                            hasVerifiedPin: true,
                           }
-                        : {}),
+                        : {
+                            hasVerifiedPin: false,
+                          }),
                     }));
                   }}
                   className="w-full p-2.5 rounded-xl border border-border bg-secondary/40 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-aqua"
                 />
 
-                {/* Hidden inputs to submit custom GPS coordinates and geofence radius */}
-                <input type="hidden" name="latitude" value={selectedGeo.latitude} />
-                <input type="hidden" name="longitude" value={selectedGeo.longitude} />
+                {/* Hidden inputs to submit verified GPS coordinates, venue link, and geofence radius */}
+                {selectedGeo.hasVerifiedPin && (
+                  <>
+                    <input type="hidden" name="latitude" value={selectedGeo.latitude} />
+                    <input type="hidden" name="longitude" value={selectedGeo.longitude} />
+                  </>
+                )}
                 <input type="hidden" name="geofence_radius" value={selectedGeo.radiusMeters} />
+                {selectedGeo.venueId && (
+                  <input type="hidden" name="venue_id" value={selectedGeo.venueId} />
+                )}
+                {selectedGeo.saveAsVenue && (
+                  <input type="hidden" name="save_as_venue" value="true" />
+                )}
 
-                {/* Quick Presets & Map Selector Badge */}
+                {/* Saved Swimming Places & Map Selector Badge */}
                 <div className="mt-2 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span className="flex items-center gap-1 font-mono text-[10px]">
-                      <MapPin className="w-3 h-3 text-aqua shrink-0" />
-                      <span>
-                        {selectedGeo.latitude.toFixed(4)}, {selectedGeo.longitude.toFixed(4)} ({selectedGeo.radiusMeters}m geofence)
+                    {selectedGeo.hasVerifiedPin ? (
+                      <span className="flex items-center gap-1 font-mono text-[10px]">
+                        <MapPin className="w-3 h-3 text-aqua shrink-0" />
+                        <span>
+                          {selectedGeo.latitude.toFixed(4)}, {selectedGeo.longitude.toFixed(4)} ({selectedGeo.radiusMeters}m geofence)
+                        </span>
                       </span>
-                    </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-400">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>Unpinned custom name — pin on map for GPS check-in</span>
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => setShowMapPicker(true)}
-                      className="text-aqua font-bold text-[10px] hover:underline"
+                      className="text-aqua font-bold text-[10px] hover:underline shrink-0"
                     >
                       Change on Map &rarr;
                     </button>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    {PRESET_VENUES.map((venue) => (
+                    {quickVenueList.map((venue) => (
                       <button
                         key={venue.key}
                         type="button"
@@ -833,17 +957,24 @@ export function SessionListClient({
                             latitude: venue.latitude,
                             longitude: venue.longitude,
                             radiusMeters: venue.radiusMeters,
+                            venueId: venue.id ?? null,
+                            saveAsVenue: false,
+                            hasVerifiedPin: true,
                           })
                         }
                         className={cn(
-                          "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all",
-                          Math.abs(selectedGeo.latitude - venue.latitude) < 0.0002 &&
-                            Math.abs(selectedGeo.longitude - venue.longitude) < 0.0002
+                          "px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-all inline-flex items-center gap-1",
+                          selectedGeo.hasVerifiedPin &&
+                            Math.abs(selectedGeo.latitude - venue.latitude) < 0.00025 &&
+                            Math.abs(selectedGeo.longitude - venue.longitude) < 0.00025
                             ? "bg-aqua/20 text-aqua border-aqua/40"
                             : "bg-secondary/40 text-muted-foreground border-border hover:text-foreground"
                         )}
                       >
-                        {venue.shortName} ({venue.radiusMeters}m)
+                        {venue.isDefault && (
+                          <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400 shrink-0" />
+                        )}
+                        <span>{venue.shortName} ({venue.radiusMeters}m)</span>
                       </button>
                     ))}
 
@@ -882,15 +1013,25 @@ export function SessionListClient({
         <MapLocationPickerModal
           isOpen={showMapPicker}
           onClose={() => setShowMapPicker(false)}
+          savedVenues={venues}
+          allowSaveAsVenue
           onSelectLocation={(data) => {
-            setSelectedGeo(data);
-            toast.success(`Location set: ${data.name} (${data.radiusMeters}m geofence)`);
+            setSelectedGeo({
+              ...data,
+              hasVerifiedPin: true,
+            });
+            toast.success(
+              `Location set: ${data.name} (${data.radiusMeters}m geofence)${
+                data.saveAsVenue ? " — will also be saved to My Swimming Places" : ""
+              }`
+            );
           }}
           initialLocation={{
             name: selectedGeo.name,
             latitude: selectedGeo.latitude,
             longitude: selectedGeo.longitude,
             radiusMeters: selectedGeo.radiusMeters,
+            venueId: selectedGeo.venueId ?? null,
           }}
         />
       )}
@@ -902,13 +1043,17 @@ export function SessionListClient({
           onClose={() => setSessionToEditLocation(null)}
           title={`Change Pool Location — ${sessionToEditLocation.title}`}
           confirmLabel="Save Session Pool Location"
+          savedVenues={venues}
+          allowSaveAsVenue
+          showApplyToSeries={Boolean(sessionToEditLocation.series_id)}
           initialLocation={(() => {
-            const venue = getSessionVenueCoordinates(sessionToEditLocation);
+            const venue = getSessionVenueCoordinates(sessionToEditLocation, venues);
             return {
               name: sessionToEditLocation.location || venue.name,
               latitude: sessionToEditLocation.latitude ?? venue.latitude,
               longitude: sessionToEditLocation.longitude ?? venue.longitude,
               radiusMeters: sessionToEditLocation.geofence_radius ?? venue.radiusMeters,
+              venueId: sessionToEditLocation.venue_id ?? null,
             };
           })()}
           onSelectLocation={async (data) => {
@@ -919,26 +1064,52 @@ export function SessionListClient({
               latitude: data.latitude,
               longitude: data.longitude,
               geofence_radius: data.radiusMeters,
+              venue_id: data.venueId ?? null,
+              saveAsVenue: data.saveAsVenue,
+              shortName: data.shortName,
+              applyToSeries: data.applyToSeries,
             });
             if (!res.success) {
               toast.error(res.error || "Failed to update session pool location.");
               return false;
             }
+            const nextVenueId = res.session?.venue_id ?? data.venueId ?? null;
             setSessions((prev) =>
-              prev.map((s) =>
-                s.id === target.id
-                  ? {
-                      ...s,
-                      location: data.name,
-                      latitude: data.latitude,
-                      longitude: data.longitude,
-                      geofence_radius: data.radiusMeters,
-                    }
-                  : s
-              )
+              prev.map((s) => {
+                const isTarget = s.id === target.id;
+                const isSibling =
+                  Boolean(data.applyToSeries) &&
+                  Boolean(target.series_id) &&
+                  s.series_id === target.series_id &&
+                  s.status === "scheduled" &&
+                  !s.is_finalized &&
+                  s.date >= target.date;
+                if (isTarget || isSibling) {
+                  return {
+                    ...s,
+                    location: data.name,
+                    venue_id: nextVenueId,
+                    latitude: data.latitude,
+                    longitude: data.longitude,
+                    geofence_radius: data.radiusMeters,
+                  };
+                }
+                return s;
+              })
             );
+            if (res.venues) {
+              setVenues(res.venues);
+            }
+            const extraMsg = [
+              data.saveAsVenue ? "saved to My Swimming Places" : "",
+              res.seriesUpdatedCount
+                ? `updated ${res.seriesUpdatedCount} more upcoming session${res.seriesUpdatedCount === 1 ? "" : "s"} in series`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" • ");
             toast.success(
-              `Updated pool location for "${target.title}" to ${data.name} (${data.radiusMeters}m)!`
+              `Updated pool location for "${target.title}" to ${data.name} (${data.radiusMeters}m)${extraMsg ? ` — ${extraMsg}` : ""}!`
             );
             router.refresh();
             return true;

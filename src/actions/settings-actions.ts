@@ -14,6 +14,7 @@ import {
   ReminderDelivery,
   AppSetting,
   SessionSeries,
+  PoolVenue,
 } from "@/types/database";
 
 /**
@@ -63,6 +64,7 @@ export async function wipeAllDataAction(): Promise<{ success: boolean; error?: s
  */
 export async function updateGeneralPreferencesAction(formData: FormData): Promise<{
   success: boolean;
+  venues?: PoolVenue[];
   error?: string;
 }> {
   await requireAdminSession();
@@ -88,26 +90,36 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
   };
   const late_threshold_minutes = clampInt(formData.get("late_threshold_minutes"), 10, 0, 120);
   const excuse_cutoff_minutes = clampInt(formData.get("excuse_cutoff_minutes"), 60, 0, 24 * 60);
-
-  const matchedVenue = matchKnownVenueByName(default_pool);
-  const rawLat = parseFloat(String(formData.get("default_pool_latitude") ?? ""));
-  const rawLng = parseFloat(String(formData.get("default_pool_longitude") ?? ""));
-  const default_pool_latitude = Number.isFinite(rawLat)
-    ? Number(rawLat.toFixed(6))
-    : matchedVenue?.latitude ?? DEFAULT_VENUE.latitude;
-  const default_pool_longitude = Number.isFinite(rawLng)
-    ? Number(rawLng.toFixed(6))
-    : matchedVenue?.longitude ?? DEFAULT_VENUE.longitude;
-  const default_pool_radius = clampInt(
-    formData.get("default_pool_radius"),
-    matchedVenue?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS,
-    25,
-    250
-  );
   const applyToUpcoming = formData.get("apply_to_upcoming_sessions") === "on";
 
   try {
     await DataStore.syncFromSupabase();
+
+    const savedVenues = DataStore.getSavedVenues();
+    const matchedVenue = matchKnownVenueByName(default_pool, savedVenues);
+    const rawLat = parseFloat(String(formData.get("default_pool_latitude") ?? ""));
+    const rawLng = parseFloat(String(formData.get("default_pool_longitude") ?? ""));
+
+    if ((!Number.isFinite(rawLat) || !Number.isFinite(rawLng)) && !matchedVenue) {
+      return {
+        success: false,
+        error:
+          'Please pin your new default pool on the map ("Select on Map") so its exact GPS coordinates are verified.',
+      };
+    }
+
+    const default_pool_latitude = Number.isFinite(rawLat)
+      ? Math.max(-90, Math.min(90, Number(rawLat.toFixed(6))))
+      : matchedVenue!.latitude;
+    const default_pool_longitude = Number.isFinite(rawLng)
+      ? Math.max(-180, Math.min(180, Number(rawLng.toFixed(6))))
+      : matchedVenue!.longitude;
+    const default_pool_radius = clampInt(
+      formData.get("default_pool_radius"),
+      matchedVenue?.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS,
+      25,
+      250
+    );
 
     const generalPayload = {
       group_name,
@@ -124,20 +136,37 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
 
     DataStore.updateAppSetting("general", generalPayload);
 
+    // Keep the coach's saved swimming places synchronized with the selected default pool
+    const defaultVenue = DataStore.ensureVenueSaved({
+      name: default_pool,
+      latitude: default_pool_latitude,
+      longitude: default_pool_longitude,
+      radius_meters: default_pool_radius,
+      is_default: true,
+    });
+    const updatedVenues = DataStore.getSavedVenues();
+
     const supabase = getSupabaseAdminClient();
     if (supabase) {
-      await supabase.from("app_settings").upsert({
+      const { error: settingsError } = await supabase.from("app_settings").upsert({
         key: "general",
         value: generalPayload,
         updated_at: new Date().toISOString(),
       });
+      if (settingsError) {
+        console.error("[updateGeneralPreferencesAction] Supabase upsert error:", settingsError);
+      }
     }
+    await SupabaseDB.syncVenues(updatedVenues);
 
     if (applyToUpcoming) {
-      const scheduledSessions = DataStore.getSessions({ status: "scheduled" });
+      const scheduledSessions = DataStore.getSessions({ status: "scheduled" }).filter(
+        (s) => !s.is_finalized
+      );
       for (const sess of scheduledSessions) {
         const updated = DataStore.updateSession(sess.id, {
           location: default_pool,
+          venue_id: defaultVenue.id,
           latitude: default_pool_latitude,
           longitude: default_pool_longitude,
           geofence_radius: default_pool_radius,
@@ -154,7 +183,7 @@ export async function updateGeneralPreferencesAction(formData: FormData): Promis
     revalidatePath("/attendance");
     revalidatePath("/portal");
 
-    return { success: true };
+    return { success: true, venues: updatedVenues };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Failed to update preferences";
     return { success: false, error: errorMsg };
@@ -219,6 +248,7 @@ export async function exportDatabaseBackupAction(): Promise<{
     series: SessionSeries[];
     attendance: AttendanceRecord[];
     reminders: ReminderDelivery[];
+    venues: PoolVenue[];
     settings: Record<string, AppSetting>;
     exportedAt: string;
     version: string;
@@ -235,9 +265,10 @@ export async function exportDatabaseBackupAction(): Promise<{
       series: DataStore.getSeries(),
       attendance: DataStore.getAllAttendance(),
       reminders: DataStore.getReminderDeliveries(100),
+      venues: DataStore.getSavedVenues(),
       settings: DataStore.getAppSettings(),
       exportedAt: new Date().toISOString(),
-      version: "2.0.0",
+      version: "3.0.0",
     };
 
     return { success: true, data: backup };

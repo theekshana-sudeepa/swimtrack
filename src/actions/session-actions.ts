@@ -33,9 +33,23 @@ export async function createSessionAction(formData: FormData) {
   const rawLat = formData.get("latitude") as string;
   const rawLng = formData.get("longitude") as string;
   const rawRadius = formData.get("geofence_radius") as string;
+  const rawVenueId = sanitizeString((formData.get("venue_id") as string) || "", 80) || null;
+  const saveAsVenue = formData.get("save_as_venue") === "on" || formData.get("save_as_venue") === "true";
   const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
   const longitude = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
   const geofence_radius = clampGeofenceRadius(rawRadius);
+
+  let resolvedVenueId = rawVenueId;
+  if (saveAsVenue && latitude != null && longitude != null) {
+    const saved = DataStore.ensureVenueSaved({
+      name: location,
+      latitude,
+      longitude,
+      radius_meters: geofence_radius,
+    });
+    resolvedVenueId = saved.id;
+    await SupabaseDB.syncVenues(DataStore.getSavedVenues());
+  }
 
   const session = DataStore.createSession({
     title,
@@ -44,6 +58,7 @@ export async function createSessionAction(formData: FormData) {
     end_time,
     location,
     notes,
+    venue_id: resolvedVenueId,
     latitude,
     longitude,
     geofence_radius,
@@ -56,9 +71,10 @@ export async function createSessionAction(formData: FormData) {
   revalidatePath("/calendar");
   revalidatePath("/dashboard");
   revalidatePath("/attendance");
+  revalidatePath("/settings");
   revalidatePath("/portal");
 
-  return { success: true, session };
+  return { success: true, session, venues: DataStore.getSavedVenues() };
 }
 
 export async function createSeriesAction(formData: FormData) {
@@ -80,9 +96,23 @@ export async function createSeriesAction(formData: FormData) {
   const rawLat = formData.get("latitude") as string;
   const rawLng = formData.get("longitude") as string;
   const rawRadius = formData.get("geofence_radius") as string;
+  const rawVenueId = sanitizeString((formData.get("venue_id") as string) || "", 80) || null;
+  const saveAsVenue = formData.get("save_as_venue") === "on" || formData.get("save_as_venue") === "true";
   const latitude = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
   const longitude = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
   const geofence_radius = clampGeofenceRadius(rawRadius);
+
+  let resolvedVenueId = rawVenueId;
+  if (saveAsVenue && latitude != null && longitude != null) {
+    const saved = DataStore.ensureVenueSaved({
+      name: location,
+      latitude,
+      longitude,
+      radius_meters: geofence_radius,
+    });
+    resolvedVenueId = saved.id;
+    await SupabaseDB.syncVenues(DataStore.getSavedVenues());
+  }
 
   const result = DataStore.createSeries({
     title,
@@ -93,6 +123,7 @@ export async function createSeriesAction(formData: FormData) {
     end_time,
     start_date,
     occurrences_to_generate: occurrences,
+    venue_id: resolvedVenueId,
     latitude,
     longitude,
     geofence_radius,
@@ -108,8 +139,9 @@ export async function createSeriesAction(formData: FormData) {
   revalidatePath("/calendar");
   revalidatePath("/dashboard");
   revalidatePath("/attendance");
+  revalidatePath("/settings");
 
-  return { success: true as const, ...result };
+  return { success: true as const, ...result, venues: DataStore.getSavedVenues() };
 }
 
 export async function updateSessionAction(id: string, formData: FormData) {
@@ -168,6 +200,8 @@ export async function updateSessionAction(id: string, formData: FormData) {
 
 /**
  * Updates the pool venue, GPS pin coordinates, and geofence check-in radius for an existing session.
+ * Optionally saves a newly pinned pool into the coach's Saved Swimming Places and/or updates all
+ * upcoming scheduled sessions in the same recurring series.
  */
 export async function updateSessionLocationAction(
   id: string,
@@ -176,6 +210,10 @@ export async function updateSessionLocationAction(
     latitude: number;
     longitude: number;
     geofence_radius: number;
+    venue_id?: string | null;
+    saveAsVenue?: boolean;
+    shortName?: string;
+    applyToSeries?: boolean;
   }
 ) {
   try {
@@ -200,8 +238,23 @@ export async function updateSessionLocationAction(
       : existing.longitude;
     const geofence_radius = clampGeofenceRadius(String(data.geofence_radius));
 
+    let resolvedVenueId = data.venue_id ?? existing.venue_id ?? null;
+
+    if (data.saveAsVenue && latitude != null && longitude != null) {
+      const saved = DataStore.ensureVenueSaved({
+        name: location,
+        short_name: data.shortName ? sanitizeString(data.shortName, 60) : undefined,
+        latitude,
+        longitude,
+        radius_meters: geofence_radius,
+      });
+      resolvedVenueId = saved.id;
+      await SupabaseDB.syncVenues(DataStore.getSavedVenues());
+    }
+
     const session = DataStore.updateSession(id, {
       location,
+      venue_id: resolvedVenueId,
       latitude,
       longitude,
       geofence_radius,
@@ -211,14 +264,44 @@ export async function updateSessionLocationAction(
       await SupabaseDB.upsertSession(session);
     }
 
+    let seriesUpdatedCount = 0;
+    if (data.applyToSeries && existing.series_id) {
+      const siblingSessions = DataStore.getSessions({ status: "scheduled" }).filter(
+        (s) =>
+          s.series_id === existing.series_id &&
+          s.id !== id &&
+          !s.is_finalized &&
+          s.date >= existing.date
+      );
+      for (const sibling of siblingSessions) {
+        const updatedSibling = DataStore.updateSession(sibling.id, {
+          location,
+          venue_id: resolvedVenueId,
+          latitude,
+          longitude,
+          geofence_radius,
+        });
+        if (updatedSibling) {
+          await SupabaseDB.upsertSession(updatedSibling);
+          seriesUpdatedCount++;
+        }
+      }
+    }
+
     revalidatePath("/sessions");
     revalidatePath(`/sessions/${id}`);
     revalidatePath("/calendar");
     revalidatePath("/dashboard");
     revalidatePath("/attendance");
+    revalidatePath("/settings");
     revalidatePath("/portal");
 
-    return { success: true as const, session };
+    return {
+      success: true as const,
+      session,
+      venues: DataStore.getSavedVenues(),
+      seriesUpdatedCount,
+    };
   } catch (err) {
     console.error("[updateSessionLocationAction] Error:", err);
     return {
