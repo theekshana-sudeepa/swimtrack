@@ -532,7 +532,7 @@ export const DataStore = {
       );
     }
 
-    // Attach computed stats based on COMPLETED sessions held by the squad
+    // Attach computed stats based on COMPLETED sessions PLUS any LIVE checked-in (present/late) scheduled sessions
     const completedSessions = store.sessions
       .filter((s) => s.status === "completed" || s.is_finalized)
       .sort((a, b) => {
@@ -541,9 +541,30 @@ export const DataStore = {
         return (a.start_time || "").localeCompare(b.start_time || "");
       });
 
+    const liveScheduledSessions = store.sessions
+      .filter((s) => s.status === "scheduled" && !s.is_finalized)
+      .sort((a, b) => {
+        const dateDiff = (a.date || "").localeCompare(b.date || "");
+        if (dateDiff !== 0) return dateDiff;
+        return (a.start_time || "").localeCompare(b.start_time || "");
+      });
+
     return result.map((swimmer) => {
-      // If completed sessions exist, evaluate attendance against all completed sessions held by the squad
-      if (completedSessions.length > 0) {
+      // Include scheduled sessions ONLY where this swimmer has already checked in (present/late)
+      const swimmerLiveSessions = liveScheduledSessions.filter((sess) => {
+        const rec = store.attendance.find(
+          (a) => a.session_id === sess.id && a.swimmer_id === swimmer.id
+        );
+        return rec && (rec.status === "present" || rec.status === "late");
+      });
+
+      const evaluatedSessions = [...completedSessions, ...swimmerLiveSessions].sort((a, b) => {
+        const dateDiff = (a.date || "").localeCompare(b.date || "");
+        if (dateDiff !== 0) return dateDiff;
+        return (a.start_time || "").localeCompare(b.start_time || "");
+      });
+
+      if (evaluatedSessions.length > 0) {
         let present = 0;
         let late = 0;
         let absent = 0;
@@ -551,7 +572,7 @@ export const DataStore = {
         let gpsCheckins = 0;
         let totalLateMinutes = 0;
 
-        const datesWithStatus = completedSessions.map((sess) => {
+        const datesWithStatus = evaluatedSessions.map((sess) => {
           const record = store.attendance.find(
             (a) => a.session_id === sess.id && a.swimmer_id === swimmer.id
           );
@@ -611,7 +632,7 @@ export const DataStore = {
             longestStreak: streaks.longestStreak,
             gpsCheckins,
             totalLateMinutes,
-            sessionsEvaluated: completedSessions.length,
+            sessionsEvaluated: evaluatedSessions.length,
             recentForm,
           },
         };

@@ -27,6 +27,7 @@ import {
   selfCheckInWithGeofenceAction,
   issueCheckinChallengeAction,
 } from "@/actions/portal-actions";
+import type { CheckinImpactSummary } from "@/lib/squad-ranks";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { cn, formatTime } from "@/lib/utils";
@@ -36,7 +37,7 @@ interface PoolRadarCheckinProps {
   savedVenues?: PoolVenue[];
   token: string;
   existingAttendance?: AttendanceRecord | null;
-  onCheckedIn?: (record: AttendanceRecord) => void;
+  onCheckedIn?: (record: AttendanceRecord, impact?: CheckinImpactSummary | null) => void;
 }
 
 type GpsState =
@@ -282,7 +283,7 @@ export function PoolRadarCheckin({
         }
 
         if (onCheckedIn) {
-          onCheckedIn(res.record);
+          onCheckedIn(res.record, res.impact ?? null);
         }
       } else if ((res as { needsLogin?: boolean }).needsLogin) {
         toast.error("Please sign in with your PIN again to check in.");

@@ -29,7 +29,10 @@ import {
   ChevronUp,
   TrendingUp,
   TrendingDown,
+  Target,
+  Crown,
 } from "lucide-react";
+import { motion } from "motion/react";
 import { Swimmer, SwimSession, SquadMessage, PoolVenue } from "@/types/database";
 import {
   getSwimmerSquadRank,
@@ -38,6 +41,7 @@ import {
   computeSquadCrowns,
   SQUAD_POINTS_RULES,
   buildPointsLedger,
+  type CheckinImpactSummary,
 } from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
 import {
@@ -46,6 +50,7 @@ import {
   logoutSwimmerAction,
 } from "@/actions/portal-actions";
 import { PoolRadarCheckin } from "./pool-radar-checkin";
+import { CheckInCelebrationModal } from "./checkin-celebration-modal";
 import { AttendanceRecord } from "@/types/database";
 import { toast } from "sonner";
 import { SwimTrackLogo } from "@/components/brand/logo";
@@ -105,7 +110,135 @@ export function SwimmerPortalClient({
   );
   const [showPointsGuide, setShowPointsGuide] = React.useState(false);
   const [expandedFriendId, setExpandedFriendId] = React.useState<string | null>(null);
+  const [celebrationImpact, setCelebrationImpact] = React.useState<CheckinImpactSummary | null>(null);
+  const [highlightMyRank, setHighlightMyRank] = React.useState(false);
+  const [rankShiftBanner, setRankShiftBanner] = React.useState<{
+    direction: "up" | "down";
+    headline: string;
+    detail: string;
+  } | null>(null);
   const pointsLedger = React.useMemo(() => buildPointsLedger(history), [history]);
+
+  // Compute Next-Target Chase Meter or Solo/Joint #1 lead
+  const chaseStatus = React.useMemo(() => {
+    if (!myRanking || rankedFriends.length < 2) return null;
+    const labelOf = (s: Swimmer) => s.nickname?.trim() || s.full_name.split(" ")[0];
+    if (myRanking.rank === 1 && !myRanking.isTied) {
+      const second = rankedFriends.find((r) => r.swimmer.id !== swimmer.id);
+      return {
+        mode: "solo_first" as const,
+        leadPts: second ? Math.max(0, myPoints.points - second.points.points) : 0,
+        otherName: second ? labelOf(second.swimmer) : "the squad",
+      };
+    }
+    if (myRanking.rank === 1 && myRanking.isTied) {
+      const coLeaders = rankedFriends
+        .filter((r) => r.rank === 1 && r.swimmer.id !== swimmer.id)
+        .map((r) => labelOf(r.swimmer));
+      return {
+        mode: "tied_first" as const,
+        coLeaders: coLeaders.slice(0, 2).join(" & "),
+      };
+    }
+    const ahead = [...rankedFriends]
+      .reverse()
+      .find((r) => r.rank < myRanking.rank && r.points.points > myPoints.points);
+    if (!ahead) return null;
+    const gap = Math.max(1, ahead.points.points - myPoints.points);
+    const pct = ahead.points.points > 0
+      ? Math.min(96, Math.max(8, Math.round((myPoints.points / ahead.points.points) * 100)))
+      : 0;
+    return {
+      mode: "chasing" as const,
+      targetName: labelOf(ahead.swimmer),
+      targetRank: ahead.rank,
+      gap,
+      pct,
+    };
+  }, [myRanking, rankedFriends, swimmer.id, myPoints.points]);
+
+  // Helper to persist latest rank snapshot to localStorage (used to detect overtakes/drops between visits)
+  const persistRankSnapshot = React.useCallback(
+    (snap: { points: number; rank: number; isTied: boolean }) => {
+      try {
+        localStorage.setItem(
+          `swimtrack_rank_snap_v1_${swimmer.id}`,
+          JSON.stringify({ ...snap, savedAt: Date.now() })
+        );
+      } catch {
+        // localStorage unavailable (private browsing)
+      }
+    },
+    [swimmer.id]
+  );
+
+  // Detect rank/point changes since last visit (e.g. a friend overtook you, or coach marked attendance/polla)
+  const checkedSnapshotRef = React.useRef(false);
+  React.useEffect(() => {
+    if (checkedSnapshotRef.current || !myRanking) return;
+    checkedSnapshotRef.current = true;
+
+    const currentSnap = {
+      points: myPoints.points,
+      rank: myRanking.rank,
+      isTied: myRanking.isTied,
+    };
+
+    try {
+      const raw = localStorage.getItem(`swimtrack_rank_snap_v1_${swimmer.id}`);
+      if (!raw) {
+        persistRankSnapshot(currentSnap);
+        return;
+      }
+      const prev = JSON.parse(raw) as { points?: number; rank?: number; isTied?: boolean };
+      if (typeof prev.points !== "number" || typeof prev.rank !== "number") {
+        persistRankSnapshot(currentSnap);
+        return;
+      }
+
+      const pointsDiff = currentSnap.points - prev.points;
+      const fmt = (r: number, t?: boolean) => (t ? `=${r}` : `#${r}`);
+      const brokeTieUp = prev.rank === 1 && prev.isTied && currentSnap.rank === 1 && !currentSnap.isTied;
+      const lostSoloFirst = prev.rank === 1 && !prev.isTied && (currentSnap.rank > 1 || currentSnap.isTied);
+      const climbed = currentSnap.rank < prev.rank || brokeTieUp;
+      const dropped = currentSnap.rank > prev.rank || lostSoloFirst;
+
+      if (dropped || pointsDiff < 0) {
+        const ahead = [...rankedFriends]
+          .reverse()
+          .find((r) => r.rank <= currentSnap.rank && r.swimmer.id !== swimmer.id);
+        const aheadName = ahead
+          ? ahead.swimmer.nickname?.trim() || ahead.swimmer.full_name.split(" ")[0]
+          : null;
+        setRankShiftBanner({
+          direction: "down",
+          headline: dropped
+            ? `Heads up! Your rank shifted ${fmt(prev.rank, prev.isTied)} → ${fmt(currentSnap.rank, currentSnap.isTied)}`
+            : `Points dropped by ${Math.abs(pointsDiff)} pts (${prev.points} → ${currentSnap.points} pts)`,
+          detail:
+            pointsDiff < 0
+              ? `You lost ${Math.abs(pointsDiff)} pts since last visit${aheadName ? ` — ${aheadName} is ahead now` : ""}. Hit the next swim to bounce back!`
+              : aheadName
+              ? `${aheadName} just checked in and moved ahead of you! Show up early next session to reclaim your spot.`
+              : "A squad mate climbed past you on Aqua Points — time to splash back!",
+        });
+      } else if (climbed || pointsDiff > 0) {
+        setRankShiftBanner({
+          direction: "up",
+          headline: climbed
+            ? `Rank Up since last visit! ${fmt(prev.rank, prev.isTied)} → ${fmt(currentSnap.rank, currentSnap.isTied)}`
+            : `+${pointsDiff} Aqua Points added since last visit!`,
+          detail: `Your balance grew from ${prev.points} → ${currentSnap.points} pts${
+            climbed ? " and you moved up the squad leaderboard!" : "."
+          }`,
+        });
+      }
+
+      persistRankSnapshot(currentSnap);
+    } catch {
+      persistRankSnapshot(currentSnap);
+    }
+  }, [myRanking, myPoints.points, rankedFriends, swimmer.id, persistRankSnapshot]);
 
   // Squad Persona Rank Calculation
   const squadRank = myRanking?.squadRank ?? getSwimmerSquadRank(myStats);
@@ -260,7 +393,54 @@ export function SwimmerPortalClient({
       </header>
 
       {/* Main Portal Content */}
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
+      <main className="max-w-3xl mx-auto px-3.5 sm:px-6 pt-5 sm:pt-6 space-y-6">
+        {/* Since Last Visit Rank Shift Alert (Shows rank overtakes OR rank drops!) */}
+        {rankShiftBanner && (
+          <motion.div
+            initial={{ y: -12, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className={cn(
+              "p-4 rounded-2xl border flex items-start justify-between gap-3 shadow-md",
+              rankShiftBanner.direction === "up"
+                ? "bg-seafoam/10 border-seafoam/35 text-foreground"
+                : "bg-coral/10 border-coral/35 text-foreground"
+            )}
+          >
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div
+                className={cn(
+                  "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5",
+                  rankShiftBanner.direction === "up"
+                    ? "bg-seafoam/20 text-seafoam"
+                    : "bg-coral/20 text-coral"
+                )}
+              >
+                {rankShiftBanner.direction === "up" ? (
+                  <TrendingUp className="w-4 h-4" />
+                ) : (
+                  <TrendingDown className="w-4 h-4" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-black text-foreground">
+                  {rankShiftBanner.headline}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                  {rankShiftBanner.detail}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRankShiftBanner(null)}
+              aria-label="Dismiss rank movement alert"
+              className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+
         {/* Personal Persona & Credentials Hero */}
         <div className="p-6 sm:p-8 rounded-3xl border border-border bg-gradient-to-br from-card via-card to-ocean-950/40 shadow-xl relative overflow-hidden space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -355,6 +535,60 @@ export function SwimmerPortalClient({
               )}
             </div>
           </div>
+
+          {/* Next-Target Chase Meter / Throne Lead Strip */}
+          {chaseStatus && (
+            <div className="p-3.5 rounded-2xl bg-secondary/35 border border-border/80 space-y-2">
+              {chaseStatus.mode === "solo_first" && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                    <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Solo #1 Pool Boss</span>
+                  </span>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    +{chaseStatus.leadPts} pts ahead of <strong className="text-foreground">{chaseStatus.otherName}</strong>
+                  </span>
+                </div>
+              )}
+
+              {chaseStatus.mode === "tied_first" && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                    <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Tied #1 with {chaseStatus.coLeaders}</span>
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    Check in poolside first next swim to claim Solo #1!
+                  </span>
+                </div>
+              )}
+
+              {chaseStatus.mode === "chasing" && (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-foreground flex items-center gap-1.5">
+                      <Target className="w-3.5 h-3.5 text-aqua shrink-0" />
+                      <span>
+                        <strong className="text-aqua font-mono">{chaseStatus.gap} pts</strong> to overtake{" "}
+                        <strong>{chaseStatus.targetName}</strong> for #{chaseStatus.targetRank}
+                      </span>
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                      {chaseStatus.pct}% there
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-secondary overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${chaseStatus.pct}%` }}
+                      transition={{ duration: 0.7, ease: "easeOut" }}
+                      className="h-full rounded-full bg-gradient-to-r from-aqua to-seafoam"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Next Session & Practice Info */}
@@ -493,8 +727,17 @@ export function SwimmerPortalClient({
             savedVenues={savedVenues}
             token={token}
             existingAttendance={currentAttendance}
-            onCheckedIn={(record) => {
+            onCheckedIn={(record, impact) => {
               setCurrentAttendance(record);
+              if (impact) {
+                setCelebrationImpact(impact);
+                setRankShiftBanner(null);
+                persistRankSnapshot({
+                  points: impact.newPoints,
+                  rank: impact.newRank,
+                  isTied: impact.newIsTied,
+                });
+              }
               router.refresh();
             }}
           />
@@ -568,7 +811,10 @@ export function SwimmerPortalClient({
 
         {/* Squad Friends & Power Rankings Leaderboard */}
         {rankedFriends.length > 0 && (
-          <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">
+          <div
+            id="squad-rankings"
+            className="scroll-mt-20 p-5 sm:p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4"
+          >
             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border">
               <div className="flex items-center gap-2">
                 <Trophy className="w-4 h-4 text-amber-400" />
@@ -709,12 +955,16 @@ export function SwimmerPortalClient({
                   );
 
                   return (
-                    <div
+                    <motion.div
                       key={friend.id}
+                      layout
+                      transition={{ type: "spring", stiffness: 320, damping: 28 }}
                       className={cn(
                         "rounded-2xl border text-xs transition-all overflow-hidden",
                         isCurrent
-                          ? "bg-aqua/10 border-aqua/40 ring-1 ring-aqua/30 shadow-sm"
+                          ? highlightMyRank
+                            ? "bg-seafoam/15 border-seafoam ring-2 ring-seafoam/50 shadow-lg"
+                            : "bg-aqua/10 border-aqua/40 ring-1 ring-aqua/30 shadow-sm"
                           : "bg-secondary/25 border-border/60 hover:border-aqua/30"
                       )}
                     >
@@ -877,7 +1127,7 @@ export function SwimmerPortalClient({
                           </div>
                         </div>
                       )}
-                    </div>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -980,7 +1230,7 @@ export function SwimmerPortalClient({
           <div className="divide-y divide-border/60">
             {pointsLedger.entries.length > 0 ? (
               pointsLedger.entries.map((item) => {
-                const { record, isScored, delta, runningBalance, chips } = item;
+                const { record, isScored, isLive, delta, runningBalance, chips } = item;
                 const session = record.session;
                 return (
                   <div
@@ -992,6 +1242,12 @@ export function SwimmerPortalClient({
                         <p className="font-bold text-foreground">
                           {session?.title || "Swimming Practice"}
                         </p>
+                        {isLive && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-seafoam/20 text-seafoam border border-seafoam/40">
+                            <span className="w-1.5 h-1.5 rounded-full bg-seafoam animate-pulse" />
+                            <span>Live</span>
+                          </span>
+                        )}
                         <span
                           className={cn(
                             "px-2 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider",
@@ -1090,6 +1346,23 @@ export function SwimmerPortalClient({
           </p>
         </div>
       </main>
+
+      {/* Animated Poolside Check-In Celebration Modal */}
+      <CheckInCelebrationModal
+        impact={celebrationImpact}
+        swimmerDisplayName={swimmer.nickname?.trim() || swimmer.full_name.split(" ")[0]}
+        onClose={() => setCelebrationImpact(null)}
+        onViewRankings={() => {
+          setCelebrationImpact(null);
+          setHighlightMyRank(true);
+          window.setTimeout(() => {
+            document
+              .getElementById("squad-rankings")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 120);
+          window.setTimeout(() => setHighlightMyRank(false), 3000);
+        }}
+      />
 
       {/* Decline / Excused Modal */}
       {showDeclineModal && (

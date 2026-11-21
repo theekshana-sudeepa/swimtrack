@@ -956,8 +956,10 @@ export interface PointsLedgerInput {
 
 export interface PointsLedgerEntry<T extends PointsLedgerInput = PointsLedgerInput> {
   record: T;
-  /** Whether this session counts toward the official Aqua Points total (completed/finalized). */
+  /** Whether this session counts toward the official Aqua Points total (completed or live checked-in). */
   isScored: boolean;
+  /** True when this session is still scheduled (not finalized yet) but already checked in live. */
+  isLive: boolean;
   /** Net points change from this session (includes base, GPS bonus, and streak gain/loss). */
   delta: number;
   /** Running Aqua Points balance after this session (floored at 0 for display). */
@@ -966,6 +968,45 @@ export interface PointsLedgerEntry<T extends PointsLedgerInput = PointsLedgerInp
   streakAfter: number;
   /** Visual breakdown pills showing exactly what was gained or lost in this session. */
   chips: PointsLedgerChip[];
+}
+
+export interface CheckinLeaderboardRow {
+  id: string;
+  displayName: string;
+  points: number;
+  rank: number;
+  isTied: boolean;
+  isMe: boolean;
+  emoji: string;
+  streak: number;
+}
+
+export interface CheckinImpactSummary {
+  previousPoints: number;
+  newPoints: number;
+  pointsDelta: number;
+  previousRank: number;
+  previousIsTied: boolean;
+  newRank: number;
+  newIsTied: boolean;
+  previousStreak: number;
+  newStreak: number;
+  previousTitle: string;
+  previousEmoji: string;
+  newTitle: string;
+  newEmoji: string;
+  titleEvolved: boolean;
+  isFirstOnDeck: boolean;
+  overtakenNames: string[];
+  nextTarget: { name: string; pointsGap: number; targetRank: number } | null;
+  leadOverSecond: { name: string; pointsAhead: number } | null;
+  chips: PointsLedgerChip[];
+  distanceMeters: number;
+  sessionTitle: string;
+  status: AttendanceStatus;
+  minutesLate: number;
+  beforeBoard: CheckinLeaderboardRow[];
+  afterBoard: CheckinLeaderboardRow[];
 }
 
 export interface PointsLedgerSummary {
@@ -1046,14 +1087,21 @@ export function buildPointsLedger<T extends PointsLedgerInput>(
     const sess = record.session;
     const isCancelled = sess?.status === "cancelled";
     const isCompleted = Boolean(sess && (sess.status === "completed" || sess.is_finalized));
+    const isLiveCheckedIn =
+      !isCancelled &&
+      !isCompleted &&
+      (record.status === "present" || record.status === "late");
     const isScored =
       !isCancelled &&
-      (hasAnyCompleted ? isCompleted : record.status !== "not_marked");
+      (hasAnyCompleted
+        ? isCompleted || isLiveCheckedIn
+        : record.status !== "not_marked");
 
     if (!isScored) {
       scoredEntries.push({
         record,
         isScored: false,
+        isLive: false,
         delta: 0,
         runningBalance: Math.max(0, runningRawBalance),
         streakAfter: runningStreak,
@@ -1146,6 +1194,7 @@ export function buildPointsLedger<T extends PointsLedgerInput>(
     scoredEntries.push({
       record,
       isScored: true,
+      isLive: isLiveCheckedIn,
       delta: sessionDelta,
       runningBalance: Math.max(0, runningRawBalance),
       streakAfter: runningStreak,
@@ -1174,6 +1223,182 @@ export function buildPointsLedger<T extends PointsLedgerInput>(
       gpsBonus,
       scoredSessionsCount,
     },
+  };
+}
+
+/**
+ * Computes the animated before/after check-in celebration payload (points earned,
+ * overtaken friends, title evolution, first-on-deck crown, and focused before/after mini-boards).
+ */
+export function computeCheckinImpact<
+  T extends {
+    id: string;
+    full_name: string;
+    nickname?: string | null;
+    attendance_stats?: SwimmerStatsInput;
+  },
+>(params: {
+  swimmerId: string;
+  beforeRanked: RankedSwimmerEntry<T>[];
+  afterRanked: RankedSwimmerEntry<T>[];
+  sessionTitle: string;
+  distanceMeters: number;
+  isFirstOnDeck: boolean;
+  status: AttendanceStatus;
+  minutesLate: number;
+  isGps?: boolean;
+}): CheckinImpactSummary | null {
+  const {
+    swimmerId,
+    beforeRanked,
+    afterRanked,
+    sessionTitle,
+    distanceMeters,
+    isFirstOnDeck,
+    status,
+    minutesLate,
+    isGps = true,
+  } = params;
+
+  const beforeMe = beforeRanked.find((r) => r.swimmer.id === swimmerId);
+  const afterMe = afterRanked.find((r) => r.swimmer.id === swimmerId);
+  if (!afterMe) return null;
+
+  const shortNameOf = (s: T) => s.nickname?.trim() || s.full_name.split(" ")[0];
+
+  const previousPoints = beforeMe?.points.points ?? 0;
+  const newPoints = afterMe.points.points;
+  const pointsDelta = Math.max(0, newPoints - previousPoints);
+
+  const previousRank = beforeMe?.rank ?? afterRanked.length;
+  const previousIsTied = beforeMe?.isTied ?? false;
+  const newRank = afterMe.rank;
+  const newIsTied = afterMe.isTied;
+
+  const previousStreak = beforeMe?.swimmer.attendance_stats?.currentStreak ?? 0;
+  const newStreak = afterMe.swimmer.attendance_stats?.currentStreak ?? previousStreak + 1;
+
+  const previousTitle = beforeMe?.squadRank.title ?? "Fresh Minnow";
+  const previousEmoji = beforeMe?.squadRank.emoji ?? "🐣";
+  const newTitle = afterMe.squadRank.title;
+  const newEmoji = afterMe.squadRank.emoji;
+  const titleEvolved = Boolean(beforeMe && previousTitle !== newTitle);
+
+  // Friends who were ahead of or tied with me before, and are now strictly behind me
+  const beforeMap = new Map(beforeRanked.map((r) => [r.swimmer.id, r]));
+  const overtakenNames: string[] = [];
+  for (const afterEntry of afterRanked) {
+    if (afterEntry.swimmer.id === swimmerId) continue;
+    const prev = beforeMap.get(afterEntry.swimmer.id);
+    if (!prev) continue;
+    const wasAheadOrTied =
+      prev.rank < previousRank ||
+      (prev.rank === previousRank && prev.points.rawPoints >= (beforeMe?.points.rawPoints ?? 0));
+    const isNowBehind = afterEntry.rank > newRank;
+    if (wasAheadOrTied && isNowBehind) {
+      overtakenNames.push(shortNameOf(afterEntry.swimmer));
+    }
+  }
+
+  // Next swimmer directly ahead of me (for Chase Meter)
+  const aheadEntry = [...afterRanked]
+    .reverse()
+    .find((r) => r.rank < newRank && r.points.points > newPoints);
+  const nextTarget = aheadEntry
+    ? {
+        name: shortNameOf(aheadEntry.swimmer),
+        pointsGap: Math.max(1, aheadEntry.points.points - newPoints),
+        targetRank: aheadEntry.rank,
+      }
+    : null;
+
+  // If Solo #1, how far ahead of #2
+  const secondEntry =
+    newRank === 1 && !newIsTied
+      ? afterRanked.find((r) => r.swimmer.id !== swimmerId && r.rank > 1)
+      : null;
+  const leadOverSecond = secondEntry
+    ? {
+        name: shortNameOf(secondEntry.swimmer),
+        pointsAhead: Math.max(0, newPoints - secondEntry.points.points),
+      }
+    : null;
+
+  // Build breakdown chips for this check-in
+  const chips: PointsLedgerChip[] = [];
+  if (status === "late") {
+    const penalty = Math.min(
+      SQUAD_POINTS_RULES.lateMaxPenaltyPerSession,
+      Math.max(0, minutesLate) * SQUAD_POINTS_RULES.lateMinutePenalty
+    );
+    chips.push({ label: "Late Arrival", delta: SQUAD_POINTS_RULES.lateBase, tone: "gain" });
+    if (penalty > 0) {
+      chips.push({ label: `${minutesLate}m late`, delta: -penalty, tone: "loss" });
+    }
+  } else {
+    chips.push({ label: "On-Time Arrival", delta: SQUAD_POINTS_RULES.present, tone: "gain" });
+  }
+  if (isGps) {
+    chips.push({ label: "GPS Poolside", delta: SQUAD_POINTS_RULES.gpsBonus, tone: "bonus" });
+  }
+  const streakGain = Math.max(0, newStreak - previousStreak) * SQUAD_POINTS_RULES.streakBonusPerSession;
+  if (streakGain > 0) {
+    chips.push({ label: `🔥 Streak ${newStreak}x`, delta: streakGain, tone: "bonus" });
+  }
+
+  // Focused 5-person window around the swimmer (same member set before & after so motion layout animates cleanly!)
+  const afterIdx = afterRanked.findIndex((r) => r.swimmer.id === swimmerId);
+  const windowSize = Math.min(5, afterRanked.length);
+  const start = Math.max(0, Math.min(afterIdx - 2, afterRanked.length - windowSize));
+  const focusedIds = new Set(
+    afterRanked.slice(start, start + windowSize).map((r) => r.swimmer.id)
+  );
+  // Make sure any overtaken swimmer is included in the animated slice if space allows
+  for (const r of afterRanked) {
+    if (focusedIds.size >= 5) break;
+    focusedIds.add(r.swimmer.id);
+  }
+
+  const toRow = (r: RankedSwimmerEntry<T>): CheckinLeaderboardRow => ({
+    id: r.swimmer.id,
+    displayName: shortNameOf(r.swimmer),
+    points: r.points.points,
+    rank: r.rank,
+    isTied: r.isTied,
+    isMe: r.swimmer.id === swimmerId,
+    emoji: r.squadRank.emoji,
+    streak: r.swimmer.attendance_stats?.currentStreak || 0,
+  });
+
+  const beforeBoard = beforeRanked.filter((r) => focusedIds.has(r.swimmer.id)).map(toRow);
+  const afterBoard = afterRanked.filter((r) => focusedIds.has(r.swimmer.id)).map(toRow);
+
+  return {
+    previousPoints,
+    newPoints,
+    pointsDelta,
+    previousRank,
+    previousIsTied,
+    newRank,
+    newIsTied,
+    previousStreak,
+    newStreak,
+    previousTitle,
+    previousEmoji,
+    newTitle,
+    newEmoji,
+    titleEvolved,
+    isFirstOnDeck,
+    overtakenNames,
+    nextTarget,
+    leadOverSecond,
+    chips,
+    distanceMeters,
+    sessionTitle,
+    status,
+    minutesLate,
+    beforeBoard,
+    afterBoard,
   };
 }
 

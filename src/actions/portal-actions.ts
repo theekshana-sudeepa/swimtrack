@@ -37,6 +37,7 @@ import {
 } from "@/lib/checkin-challenge";
 import { ensureStrongSwimmerToken } from "@/lib/swimmer-token-service";
 import { sendCoachExcuseNotice } from "@/lib/resend-service";
+import { rankSquadLeaderboard, computeCheckinImpact } from "@/lib/squad-ranks";
 import type { Swimmer, SwimSession } from "@/types/database";
 
 /** Reuse a recent full snapshot on swimmer paths instead of reloading every table per tap. */
@@ -424,6 +425,13 @@ export async function selfCheckInWithGeofenceAction(
 
     const auditReason = `${validation.reason} [IP: ${clientIp}]`;
 
+    // Snapshot squad leaderboard BEFORE check-in so we can animate exact point gains & rank overtakes
+    const beforeRanked = rankSquadLeaderboard(DataStore.getSwimmers({ status: "active" }));
+    const alreadyCheckedInCount = DataStore.getSessionAttendance(sessionId).filter(
+      (a) => a.swimmer_id !== swimmer.id && (a.status === "present" || a.status === "late")
+    ).length;
+    const isFirstOnDeck = alreadyCheckedInCount === 0;
+
     // ---- Atomic section: no `await` between the duplicate check and the write ----
     const previous = DataStore.getSessionAttendance(sessionId).find(
       (a) => a.swimmer_id === swimmer.id
@@ -465,6 +473,20 @@ export async function selfCheckInWithGeofenceAction(
       };
     }
 
+    // Compute live AFTER leaderboard & check-in celebration payload (strictly privacy-safe)
+    const afterRanked = rankSquadLeaderboard(DataStore.getSwimmers({ status: "active" }));
+    const impact = computeCheckinImpact({
+      swimmerId: swimmer.id,
+      beforeRanked,
+      afterRanked,
+      sessionTitle: session.title,
+      distanceMeters: validation.distanceMeters,
+      isFirstOnDeck,
+      status: validation.status,
+      minutesLate: validation.minutesLate,
+      isGps: true,
+    });
+
     checkinAttemptRateLimiter.reset(rateKey);
 
     // Bind this browser/phone to this swimmer for this practice so it cannot check in a second swimmer
@@ -499,6 +521,7 @@ export async function selfCheckInWithGeofenceAction(
       minutesLate: validation.minutesLate,
       distanceMeters: validation.distanceMeters,
       radiusMeters: validation.radiusMeters,
+      impact,
     };
   } finally {
     checkInsInFlight.delete(lockKey);

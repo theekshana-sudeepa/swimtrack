@@ -7,6 +7,7 @@ import {
   rankSquadLeaderboard,
   computeSquadCrowns,
   buildPointsLedger,
+  computeCheckinImpact,
 } from "./squad-ranks";
 
 describe("Squad Rank, Aqua Points & Polla Meter Logic", () => {
@@ -313,5 +314,72 @@ describe("Squad Rank, Aqua Points & Polla Meter Logic", () => {
     const week1 = ledger.entries.find((e) => e.record.id === "r1")!;
     expect(week1.delta).toBe(125);
     expect(week1.runningBalance).toBe(125);
+  });
+
+  it("computes live check-in impact with overtaken friends, Solo #1 breakaway, and first-on-deck crown", () => {
+    const beforeSquad = [
+      {
+        id: "dinusha",
+        full_name: "Dinusha",
+        nickname: "masterdinna",
+        attendance_stats: { present: 6, late: 0, absent: 0, excused: 0, rate: 100, currentStreak: 6, sessionsEvaluated: 6 },
+      },
+      {
+        id: "theekshana",
+        full_name: "Theekshana",
+        nickname: "ThikkaBro",
+        attendance_stats: { present: 6, late: 0, absent: 0, excused: 0, rate: 100, currentStreak: 6, sessionsEvaluated: 6 },
+      },
+      {
+        id: "praveen",
+        full_name: "Praveen",
+        nickname: "Beast",
+        attendance_stats: { present: 5, late: 0, absent: 0, excused: 1, rate: 100, currentStreak: 5, sessionsEvaluated: 6 },
+      },
+    ];
+
+    const afterSquad = [
+      beforeSquad[0],
+      {
+        ...beforeSquad[1],
+        attendance_stats: {
+          present: 7,
+          late: 0,
+          absent: 0,
+          excused: 0,
+          rate: 100,
+          currentStreak: 7,
+          gpsCheckins: 1,
+          sessionsEvaluated: 7,
+        },
+      },
+      beforeSquad[2],
+    ];
+
+    const impact = computeCheckinImpact({
+      swimmerId: "theekshana",
+      beforeRanked: rankSquadLeaderboard(beforeSquad),
+      afterRanked: rankSquadLeaderboard(afterSquad),
+      sessionTitle: "Saturday Lap Swim",
+      distanceMeters: 14,
+      isFirstOnDeck: true,
+      status: "present",
+      minutesLate: 0,
+      isGps: true,
+    });
+
+    expect(impact).not.toBeNull();
+    expect(impact?.previousPoints).toBe(690);
+    expect(impact?.newPoints).toBe(815);
+    expect(impact?.pointsDelta).toBe(125);
+    expect(impact?.previousRank).toBe(1);
+    expect(impact?.previousIsTied).toBe(true);
+    expect(impact?.newRank).toBe(1);
+    expect(impact?.newIsTied).toBe(false);
+    expect(impact?.isFirstOnDeck).toBe(true);
+    expect(impact?.overtakenNames).toContain("masterdinna");
+    expect(impact?.leadOverSecond).toEqual({ name: "masterdinna", pointsAhead: 125 });
+    expect(impact?.beforeBoard).toHaveLength(3);
+    expect(impact?.afterBoard[0].id).toBe("theekshana");
   });
 });
