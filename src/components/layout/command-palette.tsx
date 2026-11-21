@@ -14,6 +14,7 @@ import {
   Settings,
   Plus,
   Camera,
+  Wallet,
 } from "lucide-react";
 import { Swimmer, SwimSession } from "@/types/database";
 
@@ -94,6 +95,7 @@ export function CommandPalette({ swimmers = [], sessions = [] }: CommandPaletteP
                 { title: "Attendance Command Center", href: "/attendance", icon: ClipboardCheck },
                 { title: "All Swimmers Roster", href: "/swimmers", icon: Users },
                 { title: "Squad Memories Vault", href: "/memories", icon: Camera },
+                { title: "Squad Kitty & Bill Splits", href: "/splits", icon: Wallet },
                 { title: "Calendar Agenda", href: "/calendar", icon: CalendarDays },
                 { title: "Participation Analytics", href: "/analytics", icon: BarChart3 },
                 { title: "Email Reminders", href: "/reminders", icon: Mail },

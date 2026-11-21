@@ -14,8 +14,14 @@ import {
   AppSetting,
   SessionSeries,
   PoolVenue,
+  SquadMessage,
+  SquadReaction,
+  ReactionEmoji,
   SquadMemory,
   SquadMemoryPhoto,
+  SquadExpense,
+  SquadExpenseShare,
+  ExpenseCategory,
 } from "@/types/database";
 
 /** Maps a swim_sessions row to the app model (shared by full sync and targeted refresh). */
@@ -199,6 +205,9 @@ export const SupabaseDB = {
         seriesRes,
         venuesRes,
         memoriesRes,
+        messagesRes,
+        reactionsRes,
+        expensesRes,
       ] = await Promise.all([
         supabase
           .from("swimmers")
@@ -231,6 +240,23 @@ export const SupabaseDB = {
             .from("squad_memories")
             .select("*, squad_memory_photos(*)")
             .order("memory_date", { ascending: false })
+        ).catch(() => ({ data: null, error: null })),
+        Promise.resolve(
+          supabase
+            .from("squad_messages")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .limit(80)
+        ).catch(() => ({ data: null, error: null })),
+        Promise.resolve(
+          supabase.from("squad_reactions").select("*")
+        ).catch(() => ({ data: null, error: null })),
+        Promise.resolve(
+          supabase
+            .from("squad_expenses")
+            .select("*, squad_expense_shares(*)")
+            .order("expense_date", { ascending: false })
+            .order("created_at", { ascending: false })
         ).catch(() => ({ data: null, error: null })),
       ]);
 
@@ -385,6 +411,75 @@ export const SupabaseDB = {
           }
         );
         DataStore.hydrateMemories(mappedMemories);
+      }
+
+      // 8. Persistent Squad Chalkboard Messages
+      if (!messagesRes.error && Array.isArray(messagesRes.data)) {
+        const mappedMessages: SquadMessage[] = messagesRes.data.map(
+          (row: Record<string, unknown>) => ({
+            id: row.id as string,
+            author_name: (row.author_name as string) || "Swimmer",
+            author_swimmer_id: (row.author_swimmer_id as string) || null,
+            content: (row.content as string) || "",
+            is_admin: Boolean(row.is_admin),
+            created_at: (row.created_at as string) || new Date().toISOString(),
+          })
+        );
+        DataStore.hydrateMessages(mappedMessages);
+      }
+
+      // 9. Emoji Reactions (for Memories & Chalkboard)
+      if (!reactionsRes.error && Array.isArray(reactionsRes.data)) {
+        const mappedReactions: SquadReaction[] = reactionsRes.data.map(
+          (row: Record<string, unknown>) => ({
+            id: row.id as string,
+            target_type: row.target_type === "message" ? "message" : "memory",
+            target_id: row.target_id as string,
+            emoji: row.emoji as ReactionEmoji,
+            reactor_key: row.reactor_key as string,
+            reactor_name: (row.reactor_name as string) || "Swimmer",
+            created_at: (row.created_at as string) || new Date().toISOString(),
+          })
+        );
+        DataStore.hydrateReactions(mappedReactions);
+      }
+
+      // 10. After-Swim Bill Splits (Squad Kitty)
+      if (!expensesRes.error && Array.isArray(expensesRes.data)) {
+        const mappedExpenses: SquadExpense[] = expensesRes.data.map(
+          (row: Record<string, unknown>) => {
+            const rawShares = Array.isArray(row.squad_expense_shares)
+              ? (row.squad_expense_shares as Record<string, unknown>[])
+              : [];
+            const shares: SquadExpenseShare[] = rawShares.map((s) => ({
+              id: s.id as string,
+              expense_id: s.expense_id as string,
+              swimmer_id: s.swimmer_id as string,
+              swimmer_name: (s.swimmer_name as string) || "Swimmer",
+              share_amount: Number(s.share_amount) || 0,
+              is_paid: Boolean(s.is_paid),
+              paid_at: (s.paid_at as string) || null,
+              marked_by: (s.marked_by as string) || null,
+            }));
+
+            return {
+              id: row.id as string,
+              expense_date: row.expense_date as string,
+              session_id: (row.session_id as string) || null,
+              title: (row.title as string) || "Squad Split",
+              category: ((row.category as ExpenseCategory) || "pool_tickets"),
+              currency: (row.currency as string) || "LKR",
+              total_amount: Number(row.total_amount) || 0,
+              paid_by_name: (row.paid_by_name as string) || "Squad Coach",
+              paid_by_swimmer_id: (row.paid_by_swimmer_id as string) || null,
+              notes: (row.notes as string) || null,
+              created_at: (row.created_at as string) || new Date().toISOString(),
+              updated_at: (row.updated_at as string) || undefined,
+              shares,
+            };
+          }
+        );
+        DataStore.hydrateExpenses(mappedExpenses);
       }
 
       return true;
@@ -964,6 +1059,44 @@ export const SupabaseDB = {
       }
     } catch {
       // `pool_venues` migration not applied yet — app_settings fallback above guarantees persistence
+    }
+  },
+
+  /**
+   * Persists a Squad Chalkboard message into Postgres (`public.squad_messages`).
+   * Fault-tolerant if the Tier 1 migration hasn't been applied yet.
+   */
+  async insertSquadMessage(message: SquadMessage): Promise<void> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return;
+    try {
+      const isUuid = (val?: string | null) =>
+        typeof val === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+      await supabase.from("squad_messages").insert({
+        id: isUuid(message.id) ? message.id : undefined,
+        author_name: message.author_name,
+        author_swimmer_id: isUuid(message.author_swimmer_id) ? message.author_swimmer_id : null,
+        content: message.content,
+        is_admin: Boolean(message.is_admin),
+        created_at: message.created_at,
+      });
+    } catch {
+      // Non-fatal if `squad_messages` migration hasn't been run yet
+    }
+  },
+
+  /**
+   * Deletes a Squad Chalkboard message from Postgres.
+   */
+  async deleteSquadMessage(id: string): Promise<void> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return;
+    try {
+      await supabase.from("squad_messages").delete().eq("id", id);
+    } catch {
+      // Non-fatal
     }
   },
 };

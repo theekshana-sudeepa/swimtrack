@@ -32,9 +32,17 @@ import {
   Target,
   Crown,
   Camera,
+  Trash2,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { Swimmer, SwimSession, SquadMessage, SquadMemory, PoolVenue } from "@/types/database";
+import {
+  Swimmer,
+  SwimSession,
+  SquadMessage,
+  SquadMemory,
+  SquadExpense,
+  PoolVenue,
+} from "@/types/database";
 import {
   getSwimmerSquadRank,
   calculateSwimmerPoints,
@@ -48,11 +56,14 @@ import { formatTime, cn } from "@/lib/utils";
 import {
   submitExcuseAction,
   postChalkboardMessageAction,
+  deleteChalkboardMessageAction,
   logoutSwimmerAction,
 } from "@/actions/portal-actions";
 import { PoolRadarCheckin } from "./pool-radar-checkin";
 import { CheckInCelebrationModal } from "./checkin-celebration-modal";
 import { SquadMemoriesViewer } from "@/components/memories/squad-memories-viewer";
+import { ReactionBar } from "@/components/social/reaction-bar";
+import { SquadSplitsPanel } from "@/components/splits/squad-splits-panel";
 import { AttendanceRecord } from "@/types/database";
 import { toast } from "sonner";
 import { SwimTrackLogo } from "@/components/brand/logo";
@@ -74,6 +85,8 @@ interface SwimmerPortalClientProps {
   history: HistoryRecord[];
   initialMessages: SquadMessage[];
   initialMemories?: SquadMemory[];
+  initialExpenses?: SquadExpense[];
+  attendeesByDate?: Record<string, string[]>;
   sessions?: SwimSession[];
   squadFriends?: Swimmer[];
   squadStats?: {
@@ -91,6 +104,8 @@ export function SwimmerPortalClient({
   history,
   initialMessages,
   initialMemories = [],
+  initialExpenses = [],
+  attendeesByDate = {},
   sessions = [],
   squadFriends = [],
   squadStats,
@@ -772,6 +787,7 @@ export function SwimmerPortalClient({
           sessions={sessions}
           swimmerToken={token}
           currentSwimmerId={swimmer.id}
+          currentSwimmerName={swimmer.nickname?.trim() || swimmer.full_name}
           openDateRequest={memoryDateJump}
           onMemoriesChange={setMemories}
         />
@@ -823,15 +839,51 @@ export function SwimmerPortalClient({
                       : "bg-secondary/30 border-border/70 text-foreground"
                   )}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className={cn("font-bold text-[11px]", msg.is_admin ? "text-aqua" : "text-foreground")}>
                       {msg.author_name} {msg.is_admin && "👑"}
                     </span>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      {msg.author_swimmer_id === swimmer.id && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const res = await deleteChalkboardMessageAction(token, msg.id);
+                            if (res.success) {
+                              setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+                              toast.info("Message deleted.");
+                            } else {
+                              toast.error(res.error || "Could not delete message.");
+                            }
+                          }}
+                          title="Delete your post"
+                          className="text-muted-foreground hover:text-coral transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <p className="text-xs leading-relaxed text-foreground/90">{msg.content}</p>
+                  <div className="pt-1">
+                    <ReactionBar
+                      targetType="message"
+                      targetId={msg.id}
+                      initialReactions={msg.reactions || []}
+                      currentReactorKey={`swimmer:${swimmer.id}`}
+                      currentReactorName={swimmer.nickname?.trim() || swimmer.full_name}
+                      swimmerToken={token}
+                      compact
+                      onReactionsUpdated={(updated) => {
+                        setMessages((prev) =>
+                          prev.map((m) => (m.id === msg.id ? { ...m, reactions: updated } : m))
+                        );
+                      }}
+                    />
+                  </div>
                 </div>
               ))
             ) : (
@@ -841,6 +893,16 @@ export function SwimmerPortalClient({
             )}
           </div>
         </div>
+
+        {/* After-Swim Bill & Pool Ticket Splits (Squad Kitty) */}
+        <SquadSplitsPanel
+          initialExpenses={initialExpenses}
+          swimmers={squadFriends}
+          sessions={sessions}
+          attendeesByDate={attendeesByDate}
+          currentSwimmer={swimmer}
+          swimmerToken={token}
+        />
 
         {/* Squad Friends & Power Rankings Leaderboard */}
         {rankedFriends.length > 0 && (

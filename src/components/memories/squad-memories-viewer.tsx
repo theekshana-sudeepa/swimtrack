@@ -16,10 +16,14 @@ import {
   Sparkles,
   Grid,
   Loader2,
+  Share2,
+  Waves,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { SquadMemory, SquadMemoryPhoto, SwimSession } from "@/types/database";
 import { MemoryUploadModal } from "./memory-upload-modal";
+import { ReactionBar } from "@/components/social/reaction-bar";
+import { shareOrDownloadPolaroid } from "@/lib/polaroid-generator";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -54,6 +58,7 @@ interface SquadMemoriesViewerProps {
   /** Swimmer token & ID when used inside Swimmer Portal */
   swimmerToken?: string | null;
   currentSwimmerId?: string | null;
+  currentSwimmerName?: string | null;
   isAdmin?: boolean;
   /** Optional externally requested date to jump into the lightbox (e.g. from Attendance History) */
   openDateRequest?: { date: string; nonce: number } | null;
@@ -65,6 +70,7 @@ export function SquadMemoriesViewer({
   sessions = [],
   swimmerToken,
   currentSwimmerId,
+  currentSwimmerName,
   isAdmin = false,
   openDateRequest,
   onMemoriesChange,
@@ -81,6 +87,33 @@ export function SquadMemoriesViewer({
     photoIndex: number;
   } | null>(null);
   const [busyPhotoId, setBusyPhotoId] = React.useState<string | null>(null);
+  const [sharingPolaroidId, setSharingPolaroidId] = React.useState<string | null>(null);
+
+  const reactorKey = isAdmin ? "admin" : `swimmer:${currentSwimmerId || "guest"}`;
+  const reactorName = isAdmin ? "Squad Coach" : currentSwimmerName || "Swimmer";
+
+  async function handleSharePolaroid(memory: SquadMemory, photo: SquadMemoryPhoto) {
+    if (sharingPolaroidId) return;
+    setSharingPolaroidId(photo.id);
+    try {
+      const outcome = await shareOrDownloadPolaroid({
+        memory,
+        photo,
+        swimmerToken,
+      });
+      toast.success(
+        outcome === "shared"
+          ? "Polaroid Memory Card ready to share!"
+          : "Polaroid Memory Card saved — ready for WhatsApp or Stories!"
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not generate Polaroid card."
+      );
+    } finally {
+      setSharingPolaroidId(null);
+    }
+  }
 
   React.useEffect(() => {
     setMemories(initialMemories);
@@ -464,6 +497,62 @@ export function SquadMemoriesViewer({
                       {featuredMemory.caption}
                     </p>
                   )}
+
+                  {/* Auto-Tagged "Who Swam That Day" Roster Strip */}
+                  {featuredMemory.attendees && featuredMemory.attendees.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-2xl bg-seafoam/10 border border-seafoam/25 text-[11px]">
+                      <span className="inline-flex items-center gap-1 font-extrabold text-seafoam mr-1">
+                        <Waves className="w-3.5 h-3.5" />
+                        <span>{featuredMemory.attendees.length} in the water:</span>
+                      </span>
+                      {featuredMemory.attendees.map((att) => (
+                        <span
+                          key={att.id}
+                          className="px-2 py-0.5 rounded-full bg-background/60 border border-seafoam/25 text-foreground font-semibold text-[10px]"
+                        >
+                          {att.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Emoji Reactions + 1-Tap Polaroid Card Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                    <ReactionBar
+                      targetType="memory"
+                      targetId={featuredMemory.id}
+                      initialReactions={featuredMemory.reactions || []}
+                      currentReactorKey={reactorKey}
+                      currentReactorName={reactorName}
+                      swimmerToken={swimmerToken}
+                      onReactionsUpdated={(updatedReactions) => {
+                        syncMemoriesState((prev) =>
+                          prev.map((m) =>
+                            m.id === featuredMemory.id ? { ...m, reactions: updatedReactions } : m
+                          )
+                        );
+                      }}
+                    />
+
+                    {featuredMemory.photos[0] && (
+                      <button
+                        type="button"
+                        disabled={sharingPolaroidId === featuredMemory.photos[0].id}
+                        onClick={() =>
+                          handleSharePolaroid(featuredMemory, featuredMemory.photos[0])
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-aqua/35 bg-aqua/10 hover:bg-aqua/20 text-aqua text-[11px] font-extrabold transition-all active:scale-95 disabled:opacity-50"
+                        title="Generate a WhatsApp / Instagram Story Polaroid card"
+                      >
+                        {sharingPolaroidId === featuredMemory.photos[0].id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Share2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Polaroid Card</span>
+                      </button>
+                    )}
+                  </div>
                 </motion.div>
               );
             })()}
@@ -564,6 +653,20 @@ export function SquadMemoriesViewer({
                   <span className="hidden sm:inline">Set Cover</span>
                 </button>
               )}
+
+              <button
+                type="button"
+                disabled={sharingPolaroidId === lightboxPhoto.id}
+                onClick={() => handleSharePolaroid(lightboxMemory, lightboxPhoto)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-aqua/20 hover:bg-aqua/30 border border-aqua/40 text-aqua text-xs font-bold transition-colors disabled:opacity-50"
+              >
+                {sharingPolaroidId === lightboxPhoto.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Share2 className="w-3.5 h-3.5" />
+                )}
+                <span className="hidden sm:inline">Polaroid</span>
+              </button>
 
               <a
                 href={getDownloadHref(lightboxPhoto.id)}
@@ -673,6 +776,30 @@ export function SquadMemoriesViewer({
                 Photo {lightbox.photoIndex + 1} of {lightboxMemory.photos.length} &bull; Added by{" "}
                 <strong className="text-white/85">{lightboxPhoto.uploaded_by_name}</strong>
               </p>
+              {lightboxMemory.attendees && lightboxMemory.attendees.length > 0 && (
+                <p className="text-[11px] text-seafoam font-semibold">
+                  🏊 In the water: {lightboxMemory.attendees.map((a) => a.name).join(", ")}
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-center">
+              <ReactionBar
+                targetType="memory"
+                targetId={lightboxMemory.id}
+                initialReactions={lightboxMemory.reactions || []}
+                currentReactorKey={reactorKey}
+                currentReactorName={reactorName}
+                swimmerToken={swimmerToken}
+                darkSurface
+                onReactionsUpdated={(updatedReactions) => {
+                  syncMemoriesState((prev) =>
+                    prev.map((m) =>
+                      m.id === lightboxMemory.id ? { ...m, reactions: updatedReactions } : m
+                    )
+                  );
+                }}
+              />
             </div>
 
             {lightboxMemory.photos.length > 1 && (

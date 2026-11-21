@@ -181,6 +181,19 @@ export interface AttendanceCalculationResult {
   attendanceRate: number; // (present + late) / (present + late + absent) * 100
 }
 
+export const REACTION_EMOJIS = ["🔥", "😂", "❤️", "🏊", "☕"] as const;
+export type ReactionEmoji = (typeof REACTION_EMOJIS)[number];
+
+export interface SquadReaction {
+  id: string;
+  target_type: "memory" | "message";
+  target_id: string;
+  emoji: ReactionEmoji;
+  reactor_key: string;
+  reactor_name: string;
+  created_at: string;
+}
+
 export interface SquadMessage {
   id: string;
   author_name: string;
@@ -188,6 +201,13 @@ export interface SquadMessage {
   content: string;
   created_at: string;
   is_admin?: boolean;
+  reactions?: SquadReaction[];
+}
+
+export interface SquadMemoryAttendee {
+  id: string;
+  name: string;
+  status: "present" | "late";
 }
 
 export interface SquadMemoryPhoto {
@@ -220,9 +240,41 @@ export interface SquadMemory {
   created_at: string;
   updated_at?: string;
   photos: SquadMemoryPhoto[];
-  // Optional hydrated session info
+  // Optional hydrated session & social context
   session_title?: string | null;
   session_location?: string | null;
+  attendees?: SquadMemoryAttendee[];
+  reactions?: SquadReaction[];
+}
+
+export type ExpenseCategory = "pool_tickets" | "cafe_food" | "transport" | "gear" | "other";
+
+export interface SquadExpenseShare {
+  id: string;
+  expense_id: string;
+  swimmer_id: string;
+  swimmer_name: string;
+  share_amount: number;
+  is_paid: boolean;
+  paid_at?: string | null;
+  marked_by?: string | null;
+}
+
+export interface SquadExpense {
+  id: string;
+  expense_date: string; // YYYY-MM-DD
+  session_id?: string | null;
+  title: string;
+  category: ExpenseCategory;
+  currency: string;
+  total_amount: number;
+  paid_by_name: string;
+  paid_by_swimmer_id?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at?: string;
+  shares: SquadExpenseShare[];
+  session_title?: string | null;
 }
 
 

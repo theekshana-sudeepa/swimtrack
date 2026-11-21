@@ -6,6 +6,7 @@ import { SWIMMER_COOKIE_NAME } from "@/lib/auth";
 import { timingSafeMatch } from "@/lib/security";
 import { DataStore } from "@/lib/data-store";
 import { getMemoriesWithSignedUrls } from "@/lib/memories-service";
+import { getExpensesFresh } from "@/lib/expenses-service";
 import { SwimmerPortalClient } from "@/components/portal/swimmer-portal-client";
 import { Waves, ArrowLeft, Search } from "lucide-react";
 import { SwimTrackLogo } from "@/components/brand/logo";
@@ -73,7 +74,16 @@ export default async function SwimmerPortalPage({
   const dashboardStats = DataStore.getDashboardStats();
   const savedVenues = DataStore.getSavedVenues();
   const allSessions = DataStore.getSessions({ status: "all" });
-  const { memories } = await getMemoriesWithSignedUrls();
+  const [{ memories }, { expenses }] = await Promise.all([
+    getMemoriesWithSignedUrls(),
+    getExpensesFresh(),
+  ]);
+
+  const attendeesByDate: Record<string, string[]> = {};
+  for (const sess of allSessions) {
+    const ids = DataStore.getAttendeesForDate(sess.date, sess.id).map((a) => a.id);
+    if (ids.length > 0) attendeesByDate[sess.date] = ids;
+  }
 
   return (
     <SwimmerPortalClient
@@ -84,6 +94,8 @@ export default async function SwimmerPortalPage({
       history={history}
       initialMessages={messages}
       initialMemories={memories}
+      initialExpenses={expenses}
+      attendeesByDate={attendeesByDate}
       sessions={allSessions}
       squadFriends={squadFriends}
       squadStats={{

@@ -209,11 +209,42 @@ export async function postChalkboardMessageAction(token: string, content: string
     is_admin: false,
   });
 
+  await SupabaseDB.insertSquadMessage(msg);
   chalkboardRateLimiter.recordFailure(`chalk_${swimmer.id}`);
 
   revalidatePath(`/portal/${token}`);
 
   return { success: true, message: msg };
+}
+
+/**
+ * Deletes a Chalkboard message (swimmers can delete their own; admins can delete any).
+ */
+export async function deleteChalkboardMessageAction(token: string, messageId: string) {
+  await DataStore.syncFromSupabase({ maxAgeMs: SWIMMER_SYNC_MAX_AGE_MS });
+
+  const admin = await getAdminSession();
+  let actorSwimmerId: string | null = null;
+  if (!admin) {
+    const auth = await authenticateSwimmer(token);
+    if (!auth.ok) return { success: false, error: auth.error, needsLogin: auth.needsLogin };
+    actorSwimmerId = auth.swimmer.id;
+  }
+
+  const existing = DataStore.getSquadMessages().find((m) => m.id === messageId);
+  if (!existing) {
+    return { success: false, error: "Message not found." };
+  }
+
+  if (!admin && existing.author_swimmer_id !== actorSwimmerId) {
+    return { success: false, error: "You can only delete your own chalkboard posts." };
+  }
+
+  DataStore.deleteSquadMessage(messageId);
+  await SupabaseDB.deleteSquadMessage(messageId);
+
+  if (token) revalidatePath(`/portal/${token}`);
+  return { success: true };
 }
 
 /** In-flight guard so a double-tap / parallel request cannot run two check-ins at once. */

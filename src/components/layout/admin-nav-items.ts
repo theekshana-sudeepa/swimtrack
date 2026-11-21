@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Settings,
   Camera,
+  Wallet,
 } from "lucide-react";
 
 export interface NavItem {
@@ -55,6 +56,12 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
     href: "/memories",
     icon: Camera,
     description: "End-of-day squad photos",
+  },
+  {
+    title: "Bill Splits",
+    href: "/splits",
+    icon: Wallet,
+    description: "Pool tickets & coffee splits",
   },
   {
     title: "Reminders",

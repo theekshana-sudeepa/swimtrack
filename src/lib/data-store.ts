@@ -9,8 +9,12 @@ import {
   ReminderDelivery,
   AppSetting,
   SquadMessage,
+  SquadReaction,
+  ReactionEmoji,
   SquadMemory,
   SquadMemoryPhoto,
+  SquadMemoryAttendee,
+  SquadExpense,
   PoolVenue,
 } from "@/types/database";
 import {
@@ -76,7 +80,9 @@ interface StoreState {
   auditLogs: AttendanceAuditLog[];
   reminders: ReminderDelivery[];
   messages: SquadMessage[];
+  reactions: SquadReaction[];
   memories: SquadMemory[];
+  expenses: SquadExpense[];
   venues: PoolVenue[];
   settings: Record<string, AppSetting>;
 }
@@ -102,14 +108,16 @@ function getInitialStore(forceDemo = false): StoreState {
     reminders: isCleanSlate ? [] : JSON.parse(JSON.stringify(INITIAL_REMINDER_DELIVERIES)),
     messages: [
       {
-        id: "msg-welcome-admin",
+        id: "00000000-0000-4000-8000-000000000001",
         author_name: "Squad Coach",
         content: "Welcome to SwimTrack! Use this chalkboard for squad updates, pool notes, and motivation 🏊🌊",
         created_at: new Date().toISOString(),
         is_admin: true,
       },
     ],
+    reactions: [],
     memories: [],
+    expenses: [],
     venues: buildDefaultSeedVenues(),
     settings: {
       general: {
@@ -155,7 +163,9 @@ export const DataStore = {
     store.auditLogs = fresh.auditLogs;
     store.reminders = fresh.reminders;
     store.messages = fresh.messages;
+    store.reactions = fresh.reactions;
     store.memories = fresh.memories;
+    store.expenses = fresh.expenses;
     store.venues = fresh.venues;
     store.settings = fresh.settings;
   },
@@ -168,7 +178,9 @@ export const DataStore = {
     store.auditLogs = [];
     store.reminders = [];
     store.messages = [];
+    store.reactions = [];
     store.memories = [];
+    store.expenses = [];
   },
 
   // ---------------------------------------------------------------------------
@@ -1900,29 +1912,108 @@ export const DataStore = {
     };
   },
 
-  getSquadMessages(): SquadMessage[] {
-    return (store.messages || [])
+  hydrateMessages(messages: SquadMessage[]): void {
+    store.messages = messages
       .slice()
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
   },
 
+  getSquadMessages(): SquadMessage[] {
+    const reactions = store.reactions || [];
+    return (store.messages || [])
+      .slice()
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map((msg) => ({
+        ...msg,
+        reactions: reactions.filter(
+          (r) => r.target_type === "message" && r.target_id === msg.id
+        ),
+      }));
+  },
+
   postSquadMessage(data: {
+    id?: string;
     author_name: string;
     content: string;
     author_swimmer_id?: string;
     is_admin?: boolean;
   }): SquadMessage {
     const newMsg: SquadMessage = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: data.id || crypto.randomUUID(),
       author_name: data.author_name.trim(),
       content: data.content.trim(),
       author_swimmer_id: data.author_swimmer_id || null,
       created_at: new Date().toISOString(),
       is_admin: data.is_admin ?? false,
+      reactions: [],
     };
     if (!store.messages) store.messages = [];
     store.messages.unshift(newMsg);
     return newMsg;
+  },
+
+  deleteSquadMessage(id: string): boolean {
+    if (!store.messages) return false;
+    const before = store.messages.length;
+    store.messages = store.messages.filter((m) => m.id !== id);
+    if (store.reactions) {
+      store.reactions = store.reactions.filter(
+        (r) => !(r.target_type === "message" && r.target_id === id)
+      );
+    }
+    return store.messages.length < before;
+  },
+
+  // ---------------------------------------------------------------------------
+  // Emoji Reactions (Squad Memories & Chalkboard Messages)
+  // ---------------------------------------------------------------------------
+  hydrateReactions(reactions: SquadReaction[]): void {
+    store.reactions = reactions.slice();
+  },
+
+  getReactionsForTarget(targetType: "memory" | "message", targetId: string): SquadReaction[] {
+    return (store.reactions || []).filter(
+      (r) => r.target_type === targetType && r.target_id === targetId
+    );
+  },
+
+  toggleReactionLocal(params: {
+    target_type: "memory" | "message";
+    target_id: string;
+    emoji: ReactionEmoji;
+    reactor_key: string;
+    reactor_name: string;
+  }): { added: boolean; reaction?: SquadReaction; reactions: SquadReaction[] } {
+    if (!store.reactions) store.reactions = [];
+    const idx = store.reactions.findIndex(
+      (r) =>
+        r.target_type === params.target_type &&
+        r.target_id === params.target_id &&
+        r.emoji === params.emoji &&
+        r.reactor_key === params.reactor_key
+    );
+    if (idx !== -1) {
+      store.reactions.splice(idx, 1);
+      return {
+        added: false,
+        reactions: this.getReactionsForTarget(params.target_type, params.target_id),
+      };
+    }
+    const created: SquadReaction = {
+      id: crypto.randomUUID(),
+      target_type: params.target_type,
+      target_id: params.target_id,
+      emoji: params.emoji,
+      reactor_key: params.reactor_key,
+      reactor_name: params.reactor_name,
+      created_at: new Date().toISOString(),
+    };
+    store.reactions.push(created);
+    return {
+      added: true,
+      reaction: created,
+      reactions: this.getReactionsForTarget(params.target_type, params.target_id),
+    };
   },
 
   // ---------------------------------------------------------------------------
@@ -1937,9 +2028,36 @@ export const DataStore = {
       .sort((a, b) => b.memory_date.localeCompare(a.memory_date));
   },
 
+  getAttendeesForDate(date: string, sessionId?: string | null): SquadMemoryAttendee[] {
+    const targetSessions = store.sessions.filter(
+      (s) => (sessionId && s.id === sessionId) || s.date === date
+    );
+    if (targetSessions.length === 0) return [];
+    const sessionIds = new Set(targetSessions.map((s) => s.id));
+    const swimmersById = new Map(store.swimmers.map((s) => [s.id, s]));
+    const seen = new Set<string>();
+    const attendees: SquadMemoryAttendee[] = [];
+
+    for (const att of store.attendance) {
+      if (!sessionIds.has(att.session_id)) continue;
+      if (att.status !== "present" && att.status !== "late") continue;
+      if (seen.has(att.swimmer_id)) continue;
+      seen.add(att.swimmer_id);
+      const sw = swimmersById.get(att.swimmer_id);
+      if (!sw) continue;
+      attendees.push({
+        id: sw.id,
+        name: sw.nickname?.trim() || sw.full_name.split(" ")[0],
+        status: att.status,
+      });
+    }
+    return attendees;
+  },
+
   getMemories(): SquadMemory[] {
     const sessionsById = new Map(store.sessions.map((s) => [s.id, s]));
     const sessionsByDate = new Map(store.sessions.map((s) => [s.date, s]));
+    const reactions = store.reactions || [];
     return (store.memories || [])
       .slice()
       .sort((a, b) => b.memory_date.localeCompare(a.memory_date))
@@ -1953,6 +2071,10 @@ export const DataStore = {
           session_id: m.session_id ?? linked?.id ?? null,
           session_title: m.session_title ?? linked?.title ?? null,
           session_location: m.session_location ?? linked?.location ?? null,
+          attendees: this.getAttendeesForDate(m.memory_date, m.session_id ?? linked?.id),
+          reactions: reactions.filter(
+            (r) => r.target_type === "memory" && r.target_id === m.id
+          ),
           photos: [...(m.photos || [])].sort((a, b) => a.slot - b.slot),
         };
       });
@@ -1989,13 +2111,73 @@ export const DataStore = {
       store.memories[idx] = normalized;
     }
     store.memories.sort((a, b) => b.memory_date.localeCompare(a.memory_date));
-    return normalized;
+    return this.getMemoryById(normalized.id) || normalized;
   },
 
   deleteMemory(id: string): boolean {
     if (!store.memories) return false;
     const before = store.memories.length;
     store.memories = store.memories.filter((m) => m.id !== id);
+    if (store.reactions) {
+      store.reactions = store.reactions.filter(
+        (r) => !(r.target_type === "memory" && r.target_id === id)
+      );
+    }
     return store.memories.length < before;
+  },
+
+  // ---------------------------------------------------------------------------
+  // After-Swim Bill & Pool Ticket Splits (Squad Kitty)
+  // ---------------------------------------------------------------------------
+  hydrateExpenses(expenses: SquadExpense[]): void {
+    store.expenses = expenses
+      .slice()
+      .sort((a, b) => {
+        const dateCmp = b.expense_date.localeCompare(a.expense_date);
+        return dateCmp !== 0 ? dateCmp : b.created_at.localeCompare(a.created_at);
+      });
+  },
+
+  getExpenses(): SquadExpense[] {
+    const sessionsById = new Map(store.sessions.map((s) => [s.id, s]));
+    const sessionsByDate = new Map(store.sessions.map((s) => [s.date, s]));
+    return (store.expenses || [])
+      .slice()
+      .sort((a, b) => {
+        const dateCmp = b.expense_date.localeCompare(a.expense_date);
+        return dateCmp !== 0 ? dateCmp : b.created_at.localeCompare(a.created_at);
+      })
+      .map((e) => {
+        const linked =
+          (e.session_id ? sessionsById.get(e.session_id) : null) ||
+          sessionsByDate.get(e.expense_date) ||
+          null;
+        return {
+          ...e,
+          session_title: e.session_title ?? linked?.title ?? null,
+          shares: [...(e.shares || [])].sort((a, b) =>
+            a.swimmer_name.localeCompare(b.swimmer_name)
+          ),
+        };
+      });
+  },
+
+  getExpenseById(id: string): SquadExpense | null {
+    return this.getExpenses().find((e) => e.id === id) || null;
+  },
+
+  upsertExpense(expense: SquadExpense): SquadExpense {
+    if (!store.expenses) store.expenses = [];
+    const idx = store.expenses.findIndex((e) => e.id === expense.id);
+    if (idx === -1) store.expenses.push(expense);
+    else store.expenses[idx] = expense;
+    return this.getExpenseById(expense.id) || expense;
+  },
+
+  deleteExpense(id: string): boolean {
+    if (!store.expenses) return false;
+    const before = store.expenses.length;
+    store.expenses = store.expenses.filter((e) => e.id !== id);
+    return store.expenses.length < before;
   },
 };

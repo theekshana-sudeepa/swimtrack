@@ -17,6 +17,7 @@ import {
   LogOut,
   Search,
   Camera,
+  Wallet,
 } from "lucide-react";
 import { SwimTrackLogo } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -88,6 +89,7 @@ export function MobileHeader() {
                   { title: "Sessions", href: "/sessions", icon: Calendar },
                   { title: "Calendar", href: "/calendar", icon: CalendarDays },
                   { title: "Memories", href: "/memories", icon: Camera },
+                  { title: "Bill Splits", href: "/splits", icon: Wallet },
                   { title: "Reminders", href: "/reminders", icon: Mail },
                   { title: "Analytics", href: "/analytics", icon: BarChart3 },
                   { title: "Settings", href: "/settings", icon: Settings },

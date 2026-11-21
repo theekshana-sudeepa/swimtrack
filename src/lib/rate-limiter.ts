@@ -151,3 +151,17 @@ export const memoryUploadRateLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 12,
   lockoutMs: 10 * 60 * 1000,
 });
+
+// Emoji reactions: Max 30 toggles per 2 minutes per swimmer
+export const reactionRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 2 * 60 * 1000,
+  maxAttempts: 30,
+  lockoutMs: 2 * 60 * 1000,
+});
+
+// Bill split actions: Max 15 per 10 minutes per swimmer
+export const expenseRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  maxAttempts: 15,
+  lockoutMs: 10 * 60 * 1000,
+});
