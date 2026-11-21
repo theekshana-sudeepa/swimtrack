@@ -7,6 +7,7 @@ export type SquadRoleCategory =
   | "late"
   | "excused"
   | "flaker"
+  | "comeback"
   | "rookie";
 
 export interface SquadRank {
@@ -30,6 +31,7 @@ export interface SquadRank {
 }
 
 export interface SwimmerStatsInput {
+  total?: number;
   totalOpportunities?: number;
   present?: number;
   late?: number;
@@ -38,6 +40,10 @@ export interface SwimmerStatsInput {
   rate?: number;
   currentStreak?: number;
   longestStreak?: number;
+  gpsCheckins?: number;
+  totalLateMinutes?: number;
+  sessionsEvaluated?: number;
+  recentForm?: AttendanceStatus[];
 }
 
 export interface SessionRole {
@@ -62,31 +68,157 @@ export interface SquadRoleDefinition {
 }
 
 /**
+ * Transparent Aqua Points scoring rules — rewards actual pool attendance,
+ * punctuality, consistency streaks, and GPS-verified check-ins while
+ * preventing 1/1 rookie or excused-leave loopholes.
+ */
+export const SQUAD_POINTS_RULES = {
+  present: 100,
+  lateBase: 70,
+  lateMinutePenalty: 1,
+  lateMaxPenaltyPerSession: 25,
+  excused: 15,
+  absent: -40,
+  streakBonusPerSession: 15,
+  gpsBonus: 10,
+} as const;
+
+export interface SwimmerPointsBreakdown {
+  /** Displayed points (floored at 0 for clean UI presentation). */
+  points: number;
+  /** Unclamped raw score used internally so deep-absent swimmers still sort accurately. */
+  rawPoints: number;
+  presentPts: number;
+  latePts: number;
+  excusedPts: number;
+  absentPts: number;
+  streakBonus: number;
+  gpsBonus: number;
+  attendedCount: number;
+  sessionsCount: number;
+  breakdownText: string;
+}
+
+export interface SquadCrown {
+  id: "pool_boss" | "human_stopwatch" | "hot_streak" | "polla_watch";
+  emoji: string;
+  title: string;
+  winnerNames: string[];
+  metricLabel: string;
+  tone: "gold" | "aqua" | "amber" | "coral" | "seafoam";
+}
+
+export interface RankedSwimmerEntry<
+  T extends {
+    id: string;
+    full_name: string;
+    nickname?: string | null;
+    attendance_stats?: SwimmerStatsInput;
+  },
+> {
+  swimmer: T;
+  /** True competition rank (e.g. 1, 1, 3, 4 — shared when tied). */
+  rank: number;
+  /** True when 2+ swimmers are genuinely tied for this exact rank. */
+  isTied: boolean;
+  points: SwimmerPointsBreakdown;
+  squadRank: SquadRank;
+  roastLine: string;
+  crowns: string[];
+}
+
+/**
+ * Calculates fair, transparent Aqua Points from a swimmer's attendance stats.
+ */
+export function calculateSwimmerPoints(stats?: SwimmerStatsInput): SwimmerPointsBreakdown {
+  const present = Math.max(0, stats?.present || 0);
+  const late = Math.max(0, stats?.late || 0);
+  const absent = Math.max(0, stats?.absent || 0);
+  const excused = Math.max(0, stats?.excused || 0);
+  const currentStreak = Math.max(0, stats?.currentStreak || 0);
+  const gpsCheckins = Math.max(0, stats?.gpsCheckins || 0);
+  const totalLateMinutes = Math.max(0, stats?.totalLateMinutes || 0);
+
+  const presentPts = present * SQUAD_POINTS_RULES.present;
+  const cappedLatePenalty = Math.min(
+    late * SQUAD_POINTS_RULES.lateMaxPenaltyPerSession,
+    totalLateMinutes * SQUAD_POINTS_RULES.lateMinutePenalty
+  );
+  const latePts = Math.max(0, late * SQUAD_POINTS_RULES.lateBase - cappedLatePenalty);
+  const excusedPts = excused * SQUAD_POINTS_RULES.excused;
+  const absentPts = absent * SQUAD_POINTS_RULES.absent;
+  const streakBonus = currentStreak * SQUAD_POINTS_RULES.streakBonusPerSession;
+  const gpsBonus = gpsCheckins * SQUAD_POINTS_RULES.gpsBonus;
+
+  const rawPoints = presentPts + latePts + excusedPts + absentPts + streakBonus + gpsBonus;
+  const points = Math.max(0, rawPoints);
+
+  const attendedCount = present + late;
+  const sessionsCount =
+    stats?.sessionsEvaluated ??
+    Math.max(stats?.total ?? stats?.totalOpportunities ?? 0, attendedCount + absent + excused);
+
+  const parts: string[] = [];
+  if (present > 0) parts.push(`${present} on-time (+${presentPts})`);
+  if (late > 0) parts.push(`${late} late (+${latePts})`);
+  if (excused > 0) parts.push(`${excused} excused (+${excusedPts})`);
+  if (absent > 0) parts.push(`${absent} polla (${absentPts})`);
+  if (streakBonus > 0) parts.push(`${currentStreak} streak (+${streakBonus})`);
+  if (gpsBonus > 0) parts.push(`${gpsCheckins} GPS (+${gpsBonus})`);
+
+  return {
+    points,
+    rawPoints,
+    presentPts,
+    latePts,
+    excusedPts,
+    absentPts,
+    streakBonus,
+    gpsBonus,
+    attendedCount,
+    sessionsCount,
+    breakdownText: parts.length > 0 ? parts.join(" · ") : "No completed practices logged yet",
+  };
+}
+
+/**
  * Master catalog of squad roles and rank tiers across attendance states.
  */
 export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
   {
     id: "zero_polla_overlord",
     category: "elite",
-    title: "Zero-Polla Overlord",
-    badge: "Aqua Deity",
+    title: "Chlorine Sultan",
+    badge: "Zero-Polla Overlord",
     emoji: "🔱",
     description:
-      "Rain, thunder, or apocalypse — they are already in lane 3 doing butterfly. Gills verified by doctors.",
-    criteria: "0 unexcused absences, active streak ≥ 4 sessions or 100% attendance rate over 3+ practices.",
+      "Rain, thunder, or power cut — already in lane 3 doing butterfly. Doctors confirmed functioning gills.",
+    criteria: "4+ consecutive practices with 0 absences, 0 lates, and 0 excused skips (pure perfection).",
     stateAffinity: ["present"],
     pollaLevel: "zero",
   },
   {
     id: "iron_torpedo",
     category: "punctual",
-    title: "Iron Torpedo (Pacesetter)",
-    badge: "Swiss Precision",
+    title: "Iron Torpedo",
+    badge: "Human Stopwatch",
     emoji: "⚡",
     description:
-      "Never late, never absent, always first in the water. Coaches calibrate the pace clock to their arrival.",
-    criteria: "90%+ attendance rate, 3+ practices attended, and 100% punctuality (zero late arrivals).",
+      "Never late, never polla. Coaches calibrate the pool pace clock to their poolside splash.",
+    criteria: "3+ attended practices with 0 unexcused absences and 0 late arrivals.",
     stateAffinity: ["present"],
+    pollaLevel: "zero",
+  },
+  {
+    id: "fashionably_wet",
+    category: "punctual",
+    title: "Fashionably Wet Legend",
+    badge: "Zero Polla, Pure Chaos",
+    emoji: "😎",
+    description:
+      "Shows up to every single swim, just spiritually allergic to the opening whistle.",
+    criteria: "3+ attended practices with 0 absences and 1–2 late arrivals.",
+    stateAffinity: ["present", "late"],
     pollaLevel: "zero",
   },
   {
@@ -96,7 +228,7 @@ export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
     badge: "Pool Deck Regular",
     emoji: "🐬",
     description:
-      "Drinks pool water for hydration. Goggle marks are permanently tattooed on their eye sockets.",
+      "Drinks pool water for hydration. Goggle marks are permanently tattooed around their eyes.",
     criteria: "80%+ attendance rate with 0 unexcused absences.",
     stateAffinity: ["present"],
     pollaLevel: "zero",
@@ -105,25 +237,37 @@ export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
     id: "lane_shark",
     category: "elite",
     title: "Lane Shark",
-    badge: "Squad Fin",
+    badge: "Dependable Fin",
     emoji: "🦈",
     description:
-      "Solid, dependable swimmer. Contemplates ditching at 5:45 AM, but shows up anyway like a warrior.",
-    criteria: "2 or more attended sessions with dependable turnout.",
+      "Argues with the alarm every morning, still jumps into cold water like a warrior.",
+    criteria: "2 or more attended practices with steady squad turnout.",
     stateAffinity: ["present", "late"],
     pollaLevel: "zero",
   },
   {
     id: "honorable_reserve",
     category: "excused",
-    title: "Honorable Reserve",
+    title: "Official Leave Lawyer",
     badge: "Approved Scholar",
-    emoji: "🩺",
+    emoji: "📜",
     description:
-      "100% legitimate exemptions. Sends medical slips and exam notices ahead of time. Zero unexcused flaking.",
-    criteria: "2+ approved excused absences with zero unexcused absences (100% excuse compliance).",
+      "Zero polla on paper. Submits medical slips and exam notices faster than their 50m freestyle.",
+    criteria: "2+ approved excused absences with zero unexcused flaking.",
     stateAffinity: ["excused"],
     pollaLevel: "zero",
+  },
+  {
+    id: "comeback_kid",
+    category: "comeback",
+    title: "Comeback Kid (On Probation)",
+    badge: "Redemption Arc",
+    emoji: "🔥",
+    description:
+      "Finally remembered where the swimming pool is! One more flake and it's straight back to bed prison.",
+    criteria: "2+ past absences, now rebuilding with a 2+ active attendance streak.",
+    stateAffinity: ["present", "absent"],
+    pollaLevel: "medium",
   },
   {
     id: "warmup_dodger",
@@ -132,19 +276,19 @@ export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
     badge: "Fashionably Wet",
     emoji: "⏰",
     description:
-      "Scientifically calculates arrival to the exact second warmup laps finish. Claims traffic every single time.",
-    criteria: "2 or more late arrivals that outnumber on-time present attendances.",
+      "Scientifically calculates arrival to the exact second the 800m warmup finishes. Blames traffic every time.",
+    criteria: "2+ late arrivals outnumbering on-time attendances.",
     stateAffinity: ["late"],
     pollaLevel: "low",
   },
   {
     id: "traffic_philosopher",
     category: "late",
-    title: "Traffic Philosopher",
-    badge: "Clock Tower Victim",
+    title: "Colombo Traffic Historian",
+    badge: "Invisible Perahera Victim",
     emoji: "🚗",
     description:
-      "Understands Sri Lankan traffic patterns better than the Department of Motor Traffic. Always arrives breathless with goggles in hand.",
+      "Always stuck behind an invisible Perahera. Knows every shortcut except waking up 10 minutes earlier.",
     criteria: "3 or more recorded late arrivals across the season.",
     stateAffinity: ["late"],
     pollaLevel: "low",
@@ -152,11 +296,11 @@ export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
   {
     id: "bed_warmth_negotiator",
     category: "flaker",
-    title: "Bed Warmth Negotiator",
-    badge: "One-Time Flaker",
+    title: "Bed Sheet Hostage",
+    badge: "On Squad Parole",
     emoji: "🛏️",
     description:
-      "Ditched once because the morning alarm sounded like a personal insult. On thin ice with the squad.",
+      "The pillow won one round because the alarm felt like a personal insult. Currently on squad parole.",
     criteria: "Exactly 1 unexcused absence on record.",
     stateAffinity: ["absent"],
     pollaLevel: "low",
@@ -164,11 +308,11 @@ export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
   {
     id: "ghost_swimmer",
     category: "flaker",
-    title: "Ghost Swimmer",
-    badge: "Part-Time Submarine",
+    title: "Part-Time Submarine",
+    badge: "Ghost Swimmer",
     emoji: "👻",
     description:
-      "Seen once every full moon. Legends say they own a swimsuit, but nobody on deck can verify.",
+      "Surfaces once every full moon just to prove they still own a pair of goggles.",
     criteria: "Exactly 2 unexcused absences without prior coach notice.",
     stateAffinity: ["absent"],
     pollaLevel: "medium",
@@ -176,11 +320,11 @@ export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
   {
     id: "chief_polla_officer",
     category: "flaker",
-    title: "Chief Polla Officer (CPO)",
-    badge: "Master of Excuses",
+    title: "Polla Prime Minister (CPO)",
+    badge: "Married to the Mattress",
     emoji: "🛌",
     description:
-      "Declared legally married to their bed. Sends 'leaving in 5 mins bro' while still under the blanket.",
+      "Sends 'leaving in 5 mins machan' from deep REM sleep. Legally married to their bed.",
     criteria: "3+ unexcused absences or attendance rate below 35% with absences.",
     stateAffinity: ["absent"],
     pollaLevel: "critical",
@@ -192,7 +336,7 @@ export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
     badge: "Rookie Splasher",
     emoji: "🐣",
     description:
-      "Testing the waters. Will they rise to become an Aqua Deity, or surrender to the temptation of Polla?",
+      "Just bought goggles. Will they rise to Chlorine Sultan, or surrender to the dark arts of Polla?",
     criteria: "Fewer than 2 recorded sessions (new squad joiner).",
     stateAffinity: ["not_marked"],
     pollaLevel: "zero",
@@ -200,8 +344,8 @@ export const ALL_SQUAD_ROLES: SquadRoleDefinition[] = [
 ];
 
 /**
- * Calculates a hilarious, attractive squad title and "Polla Meter" rank
- * based on attendance habits, streaks, lateness, excused exemptions, and flaking/absence patterns.
+ * Calculates a sharp, hilarious, non-cloning squad title and "Polla Meter" rank
+ * based on actual attendance habits, streaks, lateness, excused leaves, and comeback arcs.
  */
 export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
   const present = stats?.present || 0;
@@ -212,17 +356,66 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
   const currentStreak = stats?.currentStreak || 0;
   const totalAttended = present + late;
   const totalEligible = totalAttended + absent;
+  const totalLogged = totalEligible + excused;
 
-  // 1. Extreme Polla (Frequent Flakers: 3+ absences or <35% rate with absences)
+  // 0. Rookie / New Joiner (< 2 total logged sessions and 0 absences)
+  if (totalLogged < 2 && absent === 0) {
+    return {
+      roleId: "fresh_minnow",
+      category: "rookie",
+      title: "Fresh Minnow",
+      badge: "Rookie Splasher",
+      emoji: "🐣",
+      description:
+        "Just bought goggles. Will they rise to Chlorine Sultan, or surrender to the dark arts of Polla?",
+      pollaLevel: "zero",
+      pollaTag: "Polla Immunity (New) 🌟",
+      criteria: "Fewer than 2 recorded sessions (new squad joiner).",
+      decisionReason: "New squad joiner with introductory attendance immunity.",
+      stateAffinity: ["not_marked"],
+      colorScheme: {
+        bg: "bg-secondary",
+        text: "text-foreground",
+        border: "border-border",
+        pillBg: "bg-secondary text-muted-foreground border-border",
+      },
+    };
+  }
+
+  // 1. Comeback Arc! (Previously flaked 2+ times, but actively rebuilding on a 2+ streak)
+  if (absent >= 2 && currentStreak >= 2) {
+    return {
+      roleId: "comeback_kid",
+      category: "comeback",
+      title: "Comeback Kid (On Probation)",
+      badge: "Redemption Arc",
+      emoji: "🔥",
+      description:
+        "Finally remembered where the swimming pool is! One more flake and it's straight back to bed prison.",
+      pollaLevel: "medium",
+      pollaTag: "Redemption Arc 🔥",
+      criteria: "2+ past absences, now rebuilding with an active 2+ streak.",
+      decisionReason: `Back on a ${currentStreak}-session streak after ${absent} earlier unexcused misses.`,
+      stateAffinity: ["present", "absent"],
+      colorScheme: {
+        bg: "bg-amber-400/10",
+        text: "text-amber-400",
+        border: "border-amber-400/40",
+        pillBg: "bg-amber-400/20 text-amber-300 border-amber-400/30",
+      },
+    };
+  }
+
+  // 2. Extreme Polla (Frequent Flakers: 3+ absences or <35% rate with absences)
   if (absent >= 3 || (totalEligible >= 3 && rate < 35)) {
     return {
       roleId: "chief_polla_officer",
       category: "flaker",
-      title: "Chief Polla Officer (CPO)",
-      badge: "Master of Excuses",
+      title: "Polla Prime Minister (CPO)",
+      badge: "Married to the Mattress",
       emoji: "🛌",
       description:
-        "Declared legally married to their bed. Sends 'leaving in 5 mins bro' while still under the blanket.",
+        "Sends 'leaving in 5 mins machan' from deep REM sleep. Legally married to their bed.",
       pollaLevel: "critical",
       pollaTag: "Severe Polla Risk 🚨",
       criteria: "3+ unexcused absences or attendance rate below 35%.",
@@ -237,20 +430,20 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 2. High Polla (2 absences)
+  // 3. High Polla (2 absences)
   if (absent === 2) {
     return {
       roleId: "ghost_swimmer",
       category: "flaker",
-      title: "Ghost Swimmer",
-      badge: "Part-Time Submarine",
+      title: "Part-Time Submarine",
+      badge: "Ghost Swimmer",
       emoji: "👻",
       description:
-        "Seen once every full moon. Legends say they own a swimsuit, but nobody on deck can verify.",
+        "Surfaces once every full moon just to prove they still own a pair of goggles.",
       pollaLevel: "medium",
       pollaTag: "Polla Tendencies ⚠️",
       criteria: "Exactly 2 unexcused absences without prior coach notice.",
-      decisionReason: `Triggered by 2 unexcused missed practices.`,
+      decisionReason: "Triggered by 2 unexcused missed practices.",
       stateAffinity: ["absent"],
       colorScheme: {
         bg: "bg-amber-400/10",
@@ -261,7 +454,7 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 3. Chronic Latecomer (2+ late arrivals outnumbering present attendances)
+  // 4. Chronic Latecomer (2+ late arrivals outnumbering present attendances)
   if (late >= 2 && late >= present) {
     return {
       roleId: "warmup_dodger",
@@ -270,7 +463,7 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
       badge: "Fashionably Wet",
       emoji: "⏰",
       description:
-        "Scientifically calculates arrival to the exact second warmup laps finish. Claims traffic every single time.",
+        "Scientifically calculates arrival to the exact second the 800m warmup finishes. Blames traffic every time.",
       pollaLevel: "low",
       pollaTag: "Late Lane Drifter ⏱️",
       criteria: "2+ late arrivals outnumbering on-time present attendances.",
@@ -285,16 +478,16 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 4. Frequent Latecomer (3+ late arrivals regardless of present)
+  // 5. Frequent Latecomer (3+ late arrivals regardless of present)
   if (late >= 3) {
     return {
       roleId: "traffic_philosopher",
       category: "late",
-      title: "Traffic Philosopher",
-      badge: "Clock Tower Victim",
+      title: "Colombo Traffic Historian",
+      badge: "Invisible Perahera Victim",
       emoji: "🚗",
       description:
-        "Understands Sri Lankan traffic patterns better than the Department of Motor Traffic. Always arrives breathless with goggles in hand.",
+        "Always stuck behind an invisible Perahera. Knows every shortcut except waking up 10 minutes earlier.",
       pollaLevel: "low",
       pollaTag: "Punctuality Watch ⏱️",
       criteria: "3 or more recorded late arrivals.",
@@ -309,20 +502,20 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 5. One occasional unexcused absence
+  // 6. One occasional unexcused absence
   if (absent === 1) {
     return {
       roleId: "bed_warmth_negotiator",
       category: "flaker",
-      title: "Bed Warmth Negotiator",
-      badge: "One-Time Flaker",
+      title: "Bed Sheet Hostage",
+      badge: "On Squad Parole",
       emoji: "🛏️",
       description:
-        "Ditched once because the morning alarm sounded like a personal insult. On thin ice with the squad.",
+        "The pillow won one round because the alarm felt like a personal insult. Currently on squad parole.",
       pollaLevel: "low",
       pollaTag: "Polla Warning ⚡",
       criteria: "Exactly 1 unexcused absence.",
-      decisionReason: `Triggered by 1 unexcused missed session. Under observation.`,
+      decisionReason: "Triggered by 1 unexcused missed session. On squad parole.",
       stateAffinity: ["absent"],
       colorScheme: {
         bg: "bg-sky-400/10",
@@ -333,16 +526,16 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 6. Legitimate Excused Reserve (2+ excused absences, 0 unexcused, active squad member)
+  // 7. Legitimate Excused Reserve (2+ excused absences, 0 unexcused)
   if (excused >= 2 && absent === 0 && totalAttended >= 1) {
     return {
       roleId: "honorable_reserve",
       category: "excused",
-      title: "Honorable Reserve",
+      title: "Official Leave Lawyer",
       badge: "Approved Scholar",
-      emoji: "🩺",
+      emoji: "📜",
       description:
-        "100% legitimate exemptions. Sends medical slips and exam notices ahead of time. Zero unexcused flaking.",
+        "Zero polla on paper. Submits medical slips and exam notices faster than their 50m freestyle.",
       pollaLevel: "zero",
       pollaTag: "Exempt & Approved 📋",
       criteria: "2+ approved excused absences with 0 unexcused misses.",
@@ -357,20 +550,20 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 7. Zero Polla & Elite Streak (Streak >= 4 or Rate === 100 with multiple sessions)
-  if (absent === 0 && (currentStreak >= 4 || (rate === 100 && totalAttended >= 3))) {
+  // 8. Pure Perfection: Chlorine Sultan (Zero absences, zero lates, zero excused skips, streak >= 4)
+  if (absent === 0 && late === 0 && excused === 0 && currentStreak >= 4) {
     return {
       roleId: "zero_polla_overlord",
       category: "elite",
-      title: "Zero-Polla Overlord",
-      badge: "Aqua Deity",
+      title: "Chlorine Sultan",
+      badge: "Zero-Polla Overlord",
       emoji: "🔱",
       description:
-        "Rain, thunder, or apocalypse — they are already in lane 3 doing butterfly. Gills verified by doctors.",
+        "Rain, thunder, or power cut — already in lane 3 doing butterfly. Doctors confirmed functioning gills.",
       pollaLevel: "zero",
       pollaTag: "100% Polla-Proof 🛡️",
-      criteria: "0 unexcused absences, active streak ≥ 4 or 100% attendance over 3+ practices.",
-      decisionReason: `Awarded for ${currentStreak} consecutive practices attended (${totalAttended} total) with 0 unexcused absences.`,
+      criteria: "4+ consecutive practices with 0 absences, 0 lates, and 0 excused skips.",
+      decisionReason: `Awarded for ${currentStreak} consecutive on-time practices with 0 misses and 0 skips.`,
       stateAffinity: ["present"],
       colorScheme: {
         bg: "bg-seafoam/10",
@@ -381,31 +574,58 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 8. 100% Punctual Pacesetter (Rate >= 90%, 0 lates, 0 absences)
-  if (rate >= 90 && absent === 0 && late === 0 && totalAttended >= 3) {
+  // 9. Iron Torpedo (Zero absences, zero lates, 3+ attended — catches e.g. 5/6 with 1 excused or 3/3 streak!)
+  if (absent === 0 && late === 0 && totalAttended >= 3) {
     return {
       roleId: "iron_torpedo",
       category: "punctual",
-      title: "Iron Torpedo (Pacesetter)",
-      badge: "Swiss Precision",
+      title: "Iron Torpedo",
+      badge: "Human Stopwatch",
       emoji: "⚡",
       description:
-        "Never late, never absent, always first in the water. Coaches calibrate the pace clock to their arrival.",
+        "Never late, never polla. Coaches calibrate the pool pace clock to their poolside splash.",
       pollaLevel: "zero",
       pollaTag: "On-Time Pacesetter ⏱️",
-      criteria: "90%+ attendance rate with 100% punctuality (zero late arrivals).",
-      decisionReason: `Awarded for ${totalAttended} attended practices with 100% on-time arrival and 0 missed sessions.`,
+      criteria: "3+ attended practices with 0 unexcused absences and 100% on-time arrival.",
+      decisionReason:
+        excused > 0
+          ? `Awarded for ${totalAttended} on-time practices (0 lates, 0 polla, ${excused} approved leave).`
+          : `Awarded for ${totalAttended} attended practices with 100% on-time arrival and 0 misses.`,
       stateAffinity: ["present"],
       colorScheme: {
-        bg: "bg-seafoam/10",
-        text: "text-seafoam",
-        border: "border-seafoam/40",
-        pillBg: "bg-seafoam/20 text-seafoam border-seafoam/30",
+        bg: "bg-aqua/10",
+        text: "text-aqua",
+        border: "border-aqua/40",
+        pillBg: "bg-aqua/20 text-aqua border-aqua/30",
       },
     };
   }
 
-  // 9. High Consistency (Rate >= 80% with 0 absences)
+  // 10. Fashionably Wet Legend (Zero absences, 3+ attended, but 1-2 late arrivals)
+  if (absent === 0 && late >= 1 && totalAttended >= 3) {
+    return {
+      roleId: "fashionably_wet",
+      category: "punctual",
+      title: "Fashionably Wet Legend",
+      badge: "Zero Polla, Pure Chaos",
+      emoji: "😎",
+      description:
+        "Shows up to every single swim, just spiritually allergic to the opening whistle.",
+      pollaLevel: "zero",
+      pollaTag: "Zero Polla · Late Flair 😎",
+      criteria: "3+ attended practices with 0 absences and 1–2 late arrivals.",
+      decisionReason: `Attended ${totalAttended} practices with 0 polla (${late} late arrival${late === 1 ? "" : "s"}).`,
+      stateAffinity: ["present", "late"],
+      colorScheme: {
+        bg: "bg-aqua/10",
+        text: "text-aqua",
+        border: "border-aqua/40",
+        pillBg: "bg-aqua/20 text-aqua border-aqua/30",
+      },
+    };
+  }
+
+  // 11. High Consistency (Rate >= 80% with 0 absences)
   if (rate >= 80 && absent === 0) {
     return {
       roleId: "chlorine_addict",
@@ -414,7 +634,7 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
       badge: "Pool Deck Regular",
       emoji: "🐬",
       description:
-        "Drinks pool water for hydration. Goggle marks are permanently tattooed on their eye sockets.",
+        "Drinks pool water for hydration. Goggle marks are permanently tattooed around their eyes.",
       pollaLevel: "zero",
       pollaTag: "Zero Polla MVP 🏆",
       criteria: "80%+ attendance rate with 0 unexcused absences.",
@@ -429,16 +649,16 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 10. Solid Squad Member (Total attended >= 2)
+  // 12. Solid Squad Member (Total attended >= 2)
   if (totalAttended >= 2) {
     return {
       roleId: "lane_shark",
       category: "elite",
       title: "Lane Shark",
-      badge: "Squad Fin",
+      badge: "Dependable Fin",
       emoji: "🦈",
       description:
-        "Solid, dependable swimmer. Contemplates ditching at 5:45 AM, but shows up anyway like a warrior.",
+        "Argues with the alarm every morning, still jumps into cold water like a warrior.",
       pollaLevel: "zero",
       pollaTag: "Dependable Fin 🌊",
       criteria: "2 or more attended sessions with dependable squad turnout.",
@@ -453,7 +673,7 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     };
   }
 
-  // 11. New Joiner / Fresh Minnow
+  // 13. Fallback Fresh Minnow
   return {
     roleId: "fresh_minnow",
     category: "rookie",
@@ -461,7 +681,7 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
     badge: "Rookie Splasher",
     emoji: "🐣",
     description:
-      "Testing the waters. Will they rise to become an Aqua Deity, or surrender to the temptation of Polla?",
+      "Just bought goggles. Will they rise to Chlorine Sultan, or surrender to the dark arts of Polla?",
     pollaLevel: "zero",
     pollaTag: "Polla Immunity (New) 🌟",
     criteria: "Fewer than 2 recorded sessions (new squad joiner).",
@@ -474,6 +694,241 @@ export function getSwimmerSquadRank(stats?: SwimmerStatsInput): SquadRank {
       pillBg: "bg-secondary text-muted-foreground border-border",
     },
   };
+}
+
+/**
+ * Generates a short, punchy, stat-specific banter line for each swimmer on the leaderboard.
+ */
+export function buildSwimmerRoastLine(
+  stats: SwimmerStatsInput | undefined,
+  pts: SwimmerPointsBreakdown,
+  rank: number,
+  isTied: boolean
+): string {
+  const present = stats?.present || 0;
+  const late = stats?.late || 0;
+  const absent = stats?.absent || 0;
+  const excused = stats?.excused || 0;
+  const streak = stats?.currentStreak || 0;
+  const gps = stats?.gpsCheckins || 0;
+
+  if (pts.sessionsCount === 0) {
+    return "Waiting for their first official splash on deck.";
+  }
+
+  if (absent === 0 && late === 0 && excused === 0 && pts.attendedCount >= 4) {
+    if (isTied && rank === 1) {
+      return `${pts.attendedCount}/${pts.sessionsCount} flawless — tied for the pool throne!${gps > 0 ? ` (${gps} GPS verified)` : ""}`;
+    }
+    return `${pts.attendedCount}/${pts.sessionsCount} on deck, 0m late — doctors confirmed gills.`;
+  }
+
+  if (absent === 0 && excused > 0 && late === 0) {
+    return `${pts.attendedCount}/${pts.sessionsCount} on time · ${excused} approved leave${excused === 1 ? "" : "s"} — clean sheet.`;
+  }
+
+  if (absent >= 2 && streak >= 2) {
+    return `${pts.attendedCount}/${pts.sessionsCount} total · ${streak} in a row — comeback arc loading!`;
+  }
+
+  if (absent >= 3) {
+    return `Missed ${absent}/${pts.sessionsCount} — sends "leaving in 5 mins machan" from bed.`;
+  }
+
+  if (absent === 2) {
+    return `${pts.attendedCount}/${pts.sessionsCount} swims · 2 polla — surfaces once a full moon.`;
+  }
+
+  if (late >= 2) {
+    return `${pts.attendedCount}/${pts.sessionsCount} swims · ${late}x late — allergic to warmup laps.`;
+  }
+
+  if (absent === 1) {
+    return `${pts.attendedCount}/${pts.sessionsCount} swims · 1 polla — pillow won one round.`;
+  }
+
+  return `${pts.attendedCount}/${pts.sessionsCount} practices logged · ${streak}x active streak.`;
+}
+
+/**
+ * Sorts swimmers strictly by Aqua Points (with deterministic fair tie-breakers)
+ * and assigns true shared competition ranks (`=1`, `=1`, `#3`, etc.) plus dynamic banter.
+ */
+export function rankSquadLeaderboard<
+  T extends {
+    id: string;
+    full_name: string;
+    nickname?: string | null;
+    attendance_stats?: SwimmerStatsInput;
+  },
+>(swimmers: T[]): RankedSwimmerEntry<T>[] {
+  if (!swimmers || swimmers.length === 0) return [];
+
+  const enriched = swimmers.map((swimmer) => {
+    const stats = swimmer.attendance_stats;
+    const points = calculateSwimmerPoints(stats);
+    const squadRank = getSwimmerSquadRank(stats);
+    return {
+      swimmer,
+      stats,
+      points,
+      squadRank,
+      present: stats?.present || 0,
+      streak: stats?.currentStreak || 0,
+      rate: stats?.rate || 0,
+    };
+  });
+
+  enriched.sort((a, b) => {
+    if (b.points.rawPoints !== a.points.rawPoints) {
+      return b.points.rawPoints - a.points.rawPoints;
+    }
+    if (b.points.attendedCount !== a.points.attendedCount) {
+      return b.points.attendedCount - a.points.attendedCount;
+    }
+    if (b.present !== a.present) {
+      return b.present - a.present;
+    }
+    if (b.streak !== a.streak) {
+      return b.streak - a.streak;
+    }
+    if (b.rate !== a.rate) {
+      return b.rate - a.rate;
+    }
+    return a.swimmer.full_name.localeCompare(b.swimmer.full_name);
+  });
+
+  // Compute competition ranks (1, 1, 3, 4...) and true tie flags
+  const isEquivalent = (a: (typeof enriched)[number], b: (typeof enriched)[number]) =>
+    a.points.rawPoints === b.points.rawPoints &&
+    a.points.attendedCount === b.points.attendedCount &&
+    a.present === b.present &&
+    a.streak === b.streak;
+
+  const ranks: number[] = [];
+  for (let i = 0; i < enriched.length; i++) {
+    if (i > 0 && isEquivalent(enriched[i], enriched[i - 1])) {
+      ranks.push(ranks[i - 1]);
+    } else {
+      ranks.push(i + 1);
+    }
+  }
+
+  const rankFrequency = new Map<number, number>();
+  for (const r of ranks) {
+    rankFrequency.set(r, (rankFrequency.get(r) || 0) + 1);
+  }
+
+  // Compute exclusive crown ownership
+  const maxAbsences = Math.max(...enriched.map((e) => e.stats?.absent || 0));
+  const maxStreak = Math.max(...enriched.map((e) => e.streak));
+
+  return enriched.map((item, idx) => {
+    const rank = ranks[idx];
+    const isTied = (rankFrequency.get(rank) || 0) > 1;
+    const crowns: string[] = [];
+
+    if (rank === 1 && item.points.points > 0) {
+      crowns.push(isTied ? "👑 Co-Boss" : "👑 Pool Boss");
+    }
+    if (
+      item.streak >= 3 &&
+      item.streak === maxStreak &&
+      rank !== 1
+    ) {
+      crowns.push("🔥 Hot Streak");
+    }
+    if (maxAbsences >= 2 && (item.stats?.absent || 0) === maxAbsences) {
+      crowns.push("🌴 Polla Watch");
+    }
+
+    return {
+      swimmer: item.swimmer,
+      rank,
+      isTied,
+      points: item.points,
+      squadRank: item.squadRank,
+      roastLine: buildSwimmerRoastLine(item.stats, item.points, rank, isTied),
+      crowns,
+    };
+  });
+}
+
+/**
+ * Computes the live Squad Superlatives / Banter Strip shown above the leaderboard.
+ */
+export function computeSquadCrowns<
+  T extends {
+    id: string;
+    full_name: string;
+    nickname?: string | null;
+    attendance_stats?: SwimmerStatsInput;
+  },
+>(ranked: RankedSwimmerEntry<T>[]): SquadCrown[] {
+  if (ranked.length === 0) return [];
+  const labelOf = (s: T) => s.nickname?.trim() || s.full_name.split(" ")[0];
+  const crowns: SquadCrown[] = [];
+
+  // 1. Pool Boss (#1 points)
+  const leaders = ranked.filter((r) => r.rank === 1 && r.points.points > 0);
+  if (leaders.length > 0) {
+    crowns.push({
+      id: "pool_boss",
+      emoji: "👑",
+      title: leaders.length > 1 ? "Joint Pool Bosses" : "Pool Boss",
+      winnerNames: leaders.map((l) => labelOf(l.swimmer)),
+      metricLabel: `${leaders[0].points.points} pts`,
+      tone: "gold",
+    });
+  }
+
+  // 2. Human Stopwatch (most on-time check-ins with 0 lates)
+  const punctualCandidates = ranked.filter(
+    (r) => (r.swimmer.attendance_stats?.present || 0) >= 2 && (r.swimmer.attendance_stats?.late || 0) === 0
+  );
+  if (punctualCandidates.length > 0) {
+    const maxPresent = Math.max(
+      ...punctualCandidates.map((c) => c.swimmer.attendance_stats?.present || 0)
+    );
+    const winners = punctualCandidates.filter(
+      (c) => (c.swimmer.attendance_stats?.present || 0) === maxPresent
+    );
+    crowns.push({
+      id: "human_stopwatch",
+      emoji: "⏱️",
+      title: "Human Stopwatch",
+      winnerNames: winners.slice(0, 2).map((w) => labelOf(w.swimmer)),
+      metricLabel: `${maxPresent}x on time`,
+      tone: "aqua",
+    });
+  }
+
+  // 3. Polla Watch (most unexcused absences) OR Zero-Polla Celebration!
+  const maxAbsences = Math.max(...ranked.map((r) => r.swimmer.attendance_stats?.absent || 0));
+  if (maxAbsences >= 1) {
+    const flakers = ranked.filter(
+      (r) => (r.swimmer.attendance_stats?.absent || 0) === maxAbsences
+    );
+    crowns.push({
+      id: "polla_watch",
+      emoji: "🌴",
+      title: "Most Wanted Polla",
+      winnerNames: flakers.slice(0, 2).map((f) => labelOf(f.swimmer)),
+      metricLabel: `${maxAbsences} missed`,
+      tone: "coral",
+    });
+  } else {
+    crowns.push({
+      id: "polla_watch",
+      emoji: "🛡️",
+      title: "Squad Discipline",
+      winnerNames: ["Zero Polla!"],
+      metricLabel: "0 misses total",
+      tone: "seafoam",
+    });
+  }
+
+  return crowns;
 }
 
 /**
@@ -593,7 +1048,7 @@ export function getSessionRoleForSwimmer(
       const totalAbsent = overallStats?.absent || 1;
       if (totalAbsent >= 3) {
         return {
-          role: "Chief Polla Officer",
+          role: "Polla Prime Minister",
           badge: "Serial Flaker 🚨",
           emoji: "🛌",
           tag: "MIA Flaker",

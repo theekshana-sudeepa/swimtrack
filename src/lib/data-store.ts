@@ -548,6 +548,8 @@ export const DataStore = {
         let late = 0;
         let absent = 0;
         let excused = 0;
+        let gpsCheckins = 0;
+        let totalLateMinutes = 0;
 
         const datesWithStatus = completedSessions.map((sess) => {
           const record = store.attendance.find(
@@ -561,6 +563,19 @@ export const DataStore = {
             else if (record.status === "excused") status = "excused";
             else if (record.status === "absent") status = "absent";
             else status = "absent"; // "not_marked" in a completed session is an unexcused absence
+
+            if (
+              record.checkin_method === "geofence_self" &&
+              (status === "present" || status === "late")
+            ) {
+              gpsCheckins++;
+            }
+            if (status === "late") {
+              const lateInfo = parseLateInfo(record.notes);
+              if (lateInfo && lateInfo.minutesLate > 0) {
+                totalLateMinutes += lateInfo.minutesLate;
+              }
+            }
           }
 
           if (status === "present") present++;
@@ -581,6 +596,7 @@ export const DataStore = {
             : 0;
 
         const streaks = calculateStreaks(datesWithStatus);
+        const recentForm = datesWithStatus.slice(-5).map((d) => d.status);
 
         return {
           ...swimmer,
@@ -593,6 +609,10 @@ export const DataStore = {
             rate,
             currentStreak: streaks.currentStreak,
             longestStreak: streaks.longestStreak,
+            gpsCheckins,
+            totalLateMinutes,
+            sessionsEvaluated: completedSessions.length,
+            recentForm,
           },
         };
       }
@@ -602,16 +622,35 @@ export const DataStore = {
         (a) => a.swimmer_id === swimmer.id
       );
       const calc = calculateAttendanceRate(swimmerRecords);
+      let gpsCheckins = 0;
+      let totalLateMinutes = 0;
+      for (const r of swimmerRecords) {
+        if (r.checkin_method === "geofence_self" && (r.status === "present" || r.status === "late")) {
+          gpsCheckins++;
+        }
+        if (r.status === "late") {
+          const lateInfo = parseLateInfo(r.notes);
+          if (lateInfo && lateInfo.minutesLate > 0) {
+            totalLateMinutes += lateInfo.minutesLate;
+          }
+        }
+      }
 
       // Streak calculation
-      const datesWithStatus = swimmerRecords.map((r) => {
-        const sess = store.sessions.find((s) => s.id === r.session_id);
-        return {
-          date: sess ? sess.date : "2026-01-01",
-          status: r.status,
-        };
-      });
+      const datesWithStatus = swimmerRecords
+        .map((r) => {
+          const sess = store.sessions.find((s) => s.id === r.session_id);
+          return {
+            date: sess ? sess.date : "2026-01-01",
+            status: r.status,
+          };
+        })
+        .sort((a, b) => a.date.localeCompare(b.date));
       const streaks = calculateStreaks(datesWithStatus);
+      const recentForm = datesWithStatus
+        .filter((d) => d.status !== "not_marked")
+        .slice(-5)
+        .map((d) => d.status);
 
       return {
         ...swimmer,
@@ -624,6 +663,10 @@ export const DataStore = {
           rate: calc.attendanceRate,
           currentStreak: streaks.currentStreak,
           longestStreak: streaks.longestStreak,
+          gpsCheckins,
+          totalLateMinutes,
+          sessionsEvaluated: calc.totalOpportunities + calc.excused,
+          recentForm,
         },
       };
     });

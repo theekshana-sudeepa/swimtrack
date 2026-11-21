@@ -16,8 +16,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { DataStore } from "@/lib/data-store";
-import { getSwimmerSquadRank } from "@/lib/squad-ranks";
-import { formatTime, getInitials } from "@/lib/utils";
+import { rankSquadLeaderboard } from "@/lib/squad-ranks";
+import { formatTime, getInitials, cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +31,8 @@ export default async function DashboardPage() {
   const recentReminders = DataStore.getReminderDeliveries(5);
   const recentLateArrivals = DataStore.getRecentLateArrivals(6);
 
-  // Top streak swimmers (friendly milestones)
-  const topStreaks = [...activeSwimmers]
-    .sort((a, b) => (b.attendance_stats?.currentStreak || 0) - (a.attendance_stats?.currentStreak || 0))
-    .slice(0, 3);
+  // Top squad leaders ranked by Aqua Points
+  const topPowerLeaders = rankSquadLeaderboard(activeSwimmers).slice(0, 4);
 
   // Sri Lanka Date formatting
   const colomboDateStr = new Intl.DateTimeFormat("en-US", {
@@ -350,46 +348,62 @@ export default async function DashboardPage() {
 
         {/* Right Column: Swimmer Streaks & Recent Reminders */}
         <div className="space-y-6">
-          {/* Swimmer Streaks Highlight */}
+          {/* Squad Power Leaders Highlight */}
           <div className="p-6 rounded-2xl border border-border bg-card">
             <div className="flex items-center justify-between pb-4 border-b border-border">
               <div className="flex items-center gap-2">
                 <Flame className="w-4 h-4 text-coral" />
-                <h3 className="font-bold text-sm text-foreground">Consistency Streaks</h3>
+                <h3 className="font-bold text-sm text-foreground">Squad Power Leaders</h3>
               </div>
               <Link href="/analytics" className="text-xs text-aqua hover:underline">
-                Analytics
+                Full Table
               </Link>
             </div>
 
             <div className="mt-4 space-y-3">
-              {topStreaks.map((swimmer, idx) => {
-                const rank = getSwimmerSquadRank(swimmer.attendance_stats);
+              {topPowerLeaders.map((entry) => {
+                const { swimmer, rank: pos, isTied, points, squadRank: rank } = entry;
                 return (
                   <div
                     key={swimmer.id}
-                    className="p-3 rounded-xl border border-border/70 bg-secondary/20 flex items-center justify-between"
+                    className="p-3 rounded-xl border border-border/70 bg-secondary/20 flex items-center justify-between gap-2"
                   >
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-ocean-900 text-aqua border border-aqua/30 flex items-center justify-center font-bold text-xs">
-                        {getInitials(swimmer.full_name)}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className={cn(
+                          "w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shrink-0",
+                          pos === 1
+                            ? "bg-amber-400 text-ocean-950"
+                            : pos === 2
+                            ? "bg-slate-300 text-ocean-950"
+                            : pos === 3
+                            ? "bg-amber-600/80 text-white"
+                            : "bg-ocean-900 text-aqua border border-aqua/30"
+                        )}
+                      >
+                        {isTied ? `=${pos}` : `#${pos}`}
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <h4 className="text-xs font-bold text-foreground">
+                          <h4 className="text-xs font-bold text-foreground truncate">
                             {swimmer.full_name}
                           </h4>
-                          <span className="text-[10px]">{rank.emoji}</span>
+                          <span className="text-[10px] shrink-0">{rank.emoji}</span>
                         </div>
-                        <span className="text-[10px] text-muted-foreground">
-                          {rank.title} &bull; {swimmer.attendance_stats?.rate}% rate
+                        <span className="text-[10px] text-muted-foreground block truncate">
+                          {rank.title} &bull; {points.attendedCount}/{points.sessionsCount} swims
                         </span>
                       </div>
                     </div>
 
-                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-coral/10 text-coral text-xs font-bold border border-coral/30">
-                      <Flame className="w-3.5 h-3.5 fill-coral" />
-                      <span>{swimmer.attendance_stats?.currentStreak || 0}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="font-mono text-xs font-black text-aqua">
+                        {points.points} pts
+                      </span>
+                      <div className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-coral/10 text-coral text-[11px] font-bold border border-coral/30">
+                        <Flame className="w-3 h-3 fill-coral" />
+                        <span>{swimmer.attendance_stats?.currentStreak || 0}</span>
+                      </div>
                     </div>
                   </div>
                 );

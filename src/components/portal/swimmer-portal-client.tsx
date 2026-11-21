@@ -27,7 +27,13 @@ import {
   LogOut,
 } from "lucide-react";
 import { Swimmer, SwimSession, SquadMessage, PoolVenue } from "@/types/database";
-import { getSwimmerSquadRank } from "@/lib/squad-ranks";
+import {
+  getSwimmerSquadRank,
+  calculateSwimmerPoints,
+  rankSquadLeaderboard,
+  computeSquadCrowns,
+  SQUAD_POINTS_RULES,
+} from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
 import {
   submitExcuseAction,
@@ -73,21 +79,27 @@ export function SwimmerPortalClient({
   squadStats,
 }: SwimmerPortalClientProps) {
   const router = useRouter();
-  // Friends Leaderboard & Analytics (Ranked by attendance rate & active streak)
-  const sortedFriends = React.useMemo(() => {
-    if (!squadFriends || squadFriends.length === 0) return [];
-    return [...squadFriends].sort((a, b) => {
-      const rateA = a.attendance_stats?.rate ?? 0;
-      const rateB = b.attendance_stats?.rate ?? 0;
-      if (rateB !== rateA) return rateB - rateA;
-      const streakA = a.attendance_stats?.currentStreak ?? 0;
-      const streakB = b.attendance_stats?.currentStreak ?? 0;
-      return streakB - streakA;
-    });
-  }, [squadFriends]);
+  // Friends Leaderboard ranked strictly by Aqua Points (with true shared ties & crowns)
+  const rankedFriends = React.useMemo(
+    () => rankSquadLeaderboard(squadFriends || []),
+    [squadFriends]
+  );
+  const squadCrowns = React.useMemo(
+    () => computeSquadCrowns(rankedFriends),
+    [rankedFriends]
+  );
+  const myRanking = React.useMemo(
+    () => rankedFriends.find((r) => r.swimmer.id === swimmer.id) || null,
+    [rankedFriends, swimmer.id]
+  );
+  const myPoints = React.useMemo(
+    () => myRanking?.points ?? calculateSwimmerPoints(swimmer.attendance_stats),
+    [myRanking, swimmer.attendance_stats]
+  );
+  const [showPointsGuide, setShowPointsGuide] = React.useState(false);
 
   // Squad Persona Rank Calculation
-  const squadRank = getSwimmerSquadRank(swimmer.attendance_stats);
+  const squadRank = myRanking?.squadRank ?? getSwimmerSquadRank(swimmer.attendance_stats);
 
   // Attendance & Excuse State for Next Practice
   const initialRecord = nextSession
@@ -286,18 +298,19 @@ export function SwimmerPortalClient({
 
           {/* Core Stats Row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center pt-2">
-            <div className="p-3.5 rounded-2xl bg-secondary/40 border border-border/70">
-              <div className="text-2xl font-black text-aqua">
-                {swimmer.attendance_stats?.rate || 0}%
+            <div
+              className="p-3.5 rounded-2xl bg-aqua/10 border border-aqua/30"
+              title={myPoints.breakdownText}
+            >
+              <div className="text-2xl font-black text-aqua font-mono">
+                {myPoints.points}
               </div>
               <div className="text-[11px] font-semibold text-muted-foreground mt-0.5">
-                Attendance Rate
+                Aqua Points {myRanking ? `(${myRanking.isTied ? `=${myRanking.rank}` : `#${myRanking.rank}`})` : ""}
               </div>
-              {swimmer.attendance_stats?.total !== undefined && swimmer.attendance_stats.total > 0 && (
-                <div className="text-[10px] text-muted-foreground mt-0.5 font-medium">
-                  {(swimmer.attendance_stats.present || 0) + (swimmer.attendance_stats.late || 0)} of {swimmer.attendance_stats.total} practices
-                </div>
-              )}
+              <div className="text-[10px] text-aqua/90 mt-0.5 font-medium">
+                {myPoints.attendedCount}/{myPoints.sessionsCount} swims · {swimmer.attendance_stats?.rate || 0}%
+              </div>
             </div>
 
             <div className="p-3.5 rounded-2xl bg-secondary/40 border border-border/70">
@@ -544,20 +557,59 @@ export function SwimmerPortalClient({
           </div>
         </div>
 
-        {/* Squad Friends & Analytics Leaderboard */}
-        {sortedFriends.length > 0 && (
+        {/* Squad Friends & Power Rankings Leaderboard */}
+        {rankedFriends.length > 0 && (
           <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border">
               <div className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-aqua" />
+                <Trophy className="w-4 h-4 text-amber-400" />
                 <h2 className="font-extrabold text-base text-foreground">
-                  Squad Friends &amp; Analytics 📊
+                  Squad Power Rankings 🏆
                 </h2>
               </div>
-              <span className="text-[10px] text-muted-foreground font-mono">
-                {sortedFriends.length} Squad Members
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPointsGuide((prev) => !prev)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-aqua/30 bg-aqua/10 text-aqua hover:bg-aqua/20 text-[10px] font-bold transition-colors"
+                >
+                  <HelpCircle className="w-3 h-3" />
+                  <span>{showPointsGuide ? "Hide Points" : "How Points Work"}</span>
+                </button>
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {rankedFriends.length} Swimmers
+                </span>
+              </div>
             </div>
+
+            {/* Collapsible Points Formula Guide */}
+            {showPointsGuide && (
+              <div className="p-3.5 rounded-2xl bg-secondary/40 border border-aqua/25 space-y-2 text-[11px] animate-in fade-in duration-150">
+                <div className="font-bold text-foreground">
+                  Ranked by Aqua Points — no 1/1 rookie or excused-leave loopholes. Exact ties share the same rank (=1).
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                  <span className="px-2 py-0.5 rounded-md bg-seafoam/15 text-seafoam border border-seafoam/30">
+                    On-Time +{SQUAD_POINTS_RULES.present}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 border border-amber-400/30">
+                    Late +{SQUAD_POINTS_RULES.lateBase} (-{SQUAD_POINTS_RULES.lateMinutePenalty}/min)
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-sky-400/15 text-sky-300 border border-sky-400/30">
+                    Excused +{SQUAD_POINTS_RULES.excused}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-coral/15 text-coral border border-coral/30">
+                    Polla {SQUAD_POINTS_RULES.absent}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-400/10 text-amber-400 border border-amber-400/30">
+                    Streak +{SQUAD_POINTS_RULES.streakBonusPerSession}/wk
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-aqua/15 text-aqua border border-aqua/30">
+                    GPS Check-in +{SQUAD_POINTS_RULES.gpsBonus}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Squad Overview Stats Pills */}
             {squadStats && (
@@ -591,49 +643,85 @@ export function SwimmerPortalClient({
               </div>
             )}
 
-            {/* Leaderboard Table / Card List */}
+            {/* Exclusive Squad Crowns & Banter Strip */}
+            {squadCrowns.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {squadCrowns.map((crown) => (
+                  <div
+                    key={crown.id}
+                    className={cn(
+                      "px-3 py-2.5 rounded-2xl border flex items-center gap-2.5",
+                      crown.tone === "gold"
+                        ? "bg-amber-400/10 border-amber-400/30"
+                        : crown.tone === "aqua"
+                        ? "bg-aqua/10 border-aqua/30"
+                        : crown.tone === "coral"
+                        ? "bg-coral/10 border-coral/30"
+                        : "bg-seafoam/10 border-seafoam/30"
+                    )}
+                  >
+                    <span className="text-lg shrink-0">{crown.emoji}</span>
+                    <div className="min-w-0">
+                      <div className="text-[9px] uppercase font-extrabold tracking-wider text-muted-foreground">
+                        {crown.title}
+                      </div>
+                      <div className="text-xs font-extrabold text-foreground truncate">
+                        {crown.winnerNames.join(" & ")}
+                      </div>
+                      <div className="text-[10px] font-mono text-muted-foreground">
+                        {crown.metricLabel}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Leaderboard Cards Ranked by Aqua Points */}
             <div className="space-y-2 pt-1">
               <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between px-1">
                 <span>Rank &amp; Swimmer</span>
-                <span>Streak &bull; Attendance</span>
+                <span>Points &bull; Form &bull; Streak</span>
               </div>
 
-              <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-                {sortedFriends.map((friend, index) => {
+              <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                {rankedFriends.map((entry) => {
+                  const { swimmer: friend, rank: pos, isTied, points, squadRank: friendRank, roastLine, crowns } = entry;
                   const isCurrent = friend.id === swimmer.id;
-                  const friendRank = getSwimmerSquadRank(friend.attendance_stats);
                   const friendName = friend.nickname
                     ? `${friend.full_name} ("${friend.nickname}")`
                     : friend.full_name;
+                  const recentForm = friend.attendance_stats?.recentForm || [];
 
                   return (
                     <div
                       key={friend.id}
+                      title={points.breakdownText}
                       className={cn(
-                        "p-3 rounded-2xl border text-xs flex items-center justify-between gap-3 transition-all",
+                        "p-3.5 rounded-2xl border text-xs flex items-center justify-between gap-3 transition-all",
                         isCurrent
                           ? "bg-aqua/10 border-aqua/40 ring-1 ring-aqua/30 shadow-sm"
                           : "bg-secondary/25 border-border/60"
                       )}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        {/* Position badge */}
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        {/* True Competition Position Badge (=1 for shared ties!) */}
                         <div
                           className={cn(
-                            "w-6 h-6 rounded-lg flex items-center justify-center font-black text-[11px] shrink-0",
-                            index === 0
-                              ? "bg-amber-400 text-ocean-950 font-black"
-                              : index === 1
+                            "min-w-[28px] h-7 px-1.5 rounded-lg flex items-center justify-center font-black text-[11px] shrink-0 mt-0.5",
+                            pos === 1
+                              ? "bg-amber-400 text-ocean-950 shadow-xs"
+                              : pos === 2
                               ? "bg-slate-300 text-ocean-950"
-                              : index === 2
+                              : pos === 3
                               ? "bg-amber-600/80 text-white"
                               : "bg-secondary text-muted-foreground"
                           )}
                         >
-                          {index + 1}
+                          {isTied ? `=${pos}` : pos}
                         </div>
 
-                        {/* Name & persona */}
+                        {/* Name, Title, Roast & Form Dots */}
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span
@@ -649,23 +737,68 @@ export function SwimmerPortalClient({
                                 You
                               </span>
                             )}
+                            {crowns.map((c) => (
+                              <span
+                                key={c}
+                                className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30"
+                              >
+                                {c}
+                              </span>
+                            ))}
                           </div>
-                          <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+
+                          <div className="text-[11px] font-semibold text-foreground/90 flex items-center gap-1 mt-0.5">
                             <span>{friendRank.emoji}</span>
                             <span>{friendRank.title}</span>
                           </div>
+
+                          <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                            {roastLine}
+                          </p>
                         </div>
                       </div>
 
-                      {/* Stats: Streak & Rate */}
-                      <div className="flex items-center gap-3 shrink-0 text-right">
-                        <div className="flex items-center gap-1 text-[11px] font-bold text-amber-400">
-                          <Flame className="w-3.5 h-3.5 fill-amber-400" />
-                          <span>{friend.attendance_stats?.currentStreak || 0}</span>
+                      {/* Right Column: Aqua Points, Swims, Form Dots & Streak */}
+                      <div className="flex flex-col items-end gap-1 shrink-0 text-right">
+                        <div className="flex items-baseline gap-1">
+                          <span className="font-mono font-black text-sm text-aqua">
+                            {points.points}
+                          </span>
+                          <span className="text-[10px] font-bold text-muted-foreground">pts</span>
                         </div>
-                        <div className="min-w-[42px] text-right font-mono font-bold text-xs text-foreground">
-                          {friend.attendance_stats?.rate || 0}%
+
+                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
+                          <span>
+                            {points.attendedCount}/{points.sessionsCount}
+                          </span>
+                          <span className="flex items-center gap-0.5 font-bold text-amber-400">
+                            <Flame className="w-3 h-3 fill-amber-400" />
+                            <span>{friend.attendance_stats?.currentStreak || 0}</span>
+                          </span>
                         </div>
+
+                        {recentForm.length > 0 && (
+                          <div
+                            className="flex items-center gap-1 pt-0.5"
+                            title="Last 5 practices (oldest → newest)"
+                          >
+                            {recentForm.map((st, idx) => (
+                              <span
+                                key={idx}
+                                className={cn(
+                                  "w-2 h-2 rounded-full",
+                                  st === "present"
+                                    ? "bg-seafoam"
+                                    : st === "late"
+                                    ? "bg-amber-400"
+                                    : st === "excused"
+                                    ? "bg-sky-400"
+                                    : "bg-coral"
+                                )}
+                              />
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

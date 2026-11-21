@@ -31,7 +31,11 @@ import {
   Pie,
 } from "recharts";
 import { Swimmer, SwimSession } from "@/types/database";
-import { getSwimmerSquadRank, ALL_SQUAD_ROLES } from "@/lib/squad-ranks";
+import {
+  ALL_SQUAD_ROLES,
+  rankSquadLeaderboard,
+  SQUAD_POINTS_RULES,
+} from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -76,10 +80,11 @@ export function AnalyticsClient({
       };
     });
 
-  // Swimmer leaderboard by attendance rate
-  const swimmerLeaderboard = [...swimmers]
-    .filter((s) => s.status === "active")
-    .sort((a, b) => (b.attendance_stats?.rate || 0) - (a.attendance_stats?.rate || 0));
+  // Swimmer leaderboard ranked strictly by Aqua Points (with true shared ties)
+  const rankedLeaderboard = React.useMemo(
+    () => rankSquadLeaderboard(swimmers.filter((s) => s.status === "active")),
+    [swimmers]
+  );
 
   // Overall status distribution across all completed sessions
   let totalPresent = 0;
@@ -358,13 +363,34 @@ export function AnalyticsClient({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-extrabold text-foreground flex items-center gap-2">
-                  <span>🎓</span>
-                  <span>Official Squad Titles & Rank Decision Rules</span>
+                  <span>🏆</span>
+                  <span>Aqua Points Formula &amp; Official Squad Titles</span>
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  How attendance states (Present, Late, Excused, Absent), streaks, and punctuality decide squad titles.
+                  Rankings are ordered by Aqua Points — rewarding actual pool turnout, on-time arrival, streaks, and poolside GPS check-ins. Identical scores share a tie rank (=1).
                 </p>
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+              <span className="px-2 py-1 rounded-lg bg-seafoam/15 text-seafoam border border-seafoam/30">
+                On-Time: +{SQUAD_POINTS_RULES.present} pts
+              </span>
+              <span className="px-2 py-1 rounded-lg bg-amber-400/15 text-amber-300 border border-amber-400/30">
+                Late: +{SQUAD_POINTS_RULES.lateBase} pts (-{SQUAD_POINTS_RULES.lateMinutePenalty}/min)
+              </span>
+              <span className="px-2 py-1 rounded-lg bg-sky-400/15 text-sky-300 border border-sky-400/30">
+                Excused: +{SQUAD_POINTS_RULES.excused} pts
+              </span>
+              <span className="px-2 py-1 rounded-lg bg-coral/15 text-coral border border-coral/30">
+                Polla (Absent): {SQUAD_POINTS_RULES.absent} pts
+              </span>
+              <span className="px-2 py-1 rounded-lg bg-amber-400/10 text-amber-400 border border-amber-400/30">
+                Streak: +{SQUAD_POINTS_RULES.streakBonusPerSession} pts/week
+              </span>
+              <span className="px-2 py-1 rounded-lg bg-aqua/15 text-aqua border border-aqua/30">
+                GPS Check-in: +{SQUAD_POINTS_RULES.gpsBonus} pts
+              </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
@@ -421,24 +447,43 @@ export function AnalyticsClient({
           <table className="w-full text-xs text-left">
             <thead className="text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border bg-secondary/20">
               <tr>
+                <th className="py-2.5 px-3">Rank</th>
                 <th className="py-2.5 px-3">Swimmer</th>
-                <th className="py-2.5 px-3">Squad Rank & Title</th>
-                <th className="py-2.5 px-3">Attendance Rate</th>
-                <th className="py-2.5 px-3">Current Streak</th>
-                <th className="py-2.5 px-3">Polla Rating</th>
+                <th className="py-2.5 px-3">Aqua Points</th>
+                <th className="py-2.5 px-3">Squad Title &amp; Roast</th>
+                <th className="py-2.5 px-3">Last 5 Form</th>
+                <th className="py-2.5 px-3">Attendance</th>
+                <th className="py-2.5 px-3">Streak</th>
                 <th className="py-2.5 px-3">Present</th>
                 <th className="py-2.5 px-3">Late</th>
                 <th className="py-2.5 px-3">Excused</th>
-                <th className="py-2.5 px-3">Absent (Polla)</th>
+                <th className="py-2.5 px-3">Polla</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {swimmerLeaderboard.map((swimmer) => {
+              {rankedLeaderboard.map((entry) => {
+                const { swimmer, rank: pos, isTied, points, squadRank: rank, roastLine } = entry;
                 const s = swimmer.attendance_stats;
-                const rank = getSwimmerSquadRank(s);
+                const recentForm = s?.recentForm || [];
 
                 return (
                   <tr key={swimmer.id} className="hover:bg-secondary/20 transition-colors">
+                    <td className="py-3 px-3">
+                      <span
+                        className={cn(
+                          "inline-flex items-center justify-center min-w-[28px] h-6 px-1.5 rounded-lg font-black text-[11px]",
+                          pos === 1
+                            ? "bg-amber-400 text-ocean-950"
+                            : pos === 2
+                            ? "bg-slate-300 text-ocean-950"
+                            : pos === 3
+                            ? "bg-amber-600/80 text-white"
+                            : "bg-secondary text-muted-foreground"
+                        )}
+                      >
+                        {isTied ? `=${pos}` : `#${pos}`}
+                      </span>
+                    </td>
                     <td className="py-3 px-3 font-bold text-foreground">
                       {swimmer.full_name}
                       {swimmer.nickname && (
@@ -446,6 +491,14 @@ export function AnalyticsClient({
                           ({swimmer.nickname})
                         </span>
                       )}
+                    </td>
+                    <td className="py-3 px-3" title={points.breakdownText}>
+                      <div className="font-mono font-black text-sm text-aqua cursor-help">
+                        {points.points} <span className="text-[10px] font-semibold text-muted-foreground">pts</span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        {points.attendedCount}/{points.sessionsCount} swims
+                      </div>
                     </td>
                     <td className="py-3 px-3">
                       <div>
@@ -459,15 +512,39 @@ export function AnalyticsClient({
                           <span>{rank.emoji}</span>
                           <span>{rank.title}</span>
                         </span>
-                        <div className="text-[10px] text-muted-foreground/80 truncate max-w-[200px] mt-0.5">
-                          {rank.decisionReason}
+                        <div className="text-[10px] text-muted-foreground/85 truncate max-w-[230px] mt-0.5">
+                          {roastLine}
                         </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-1">
+                        {recentForm.length > 0 ? (
+                          recentForm.map((st, i) => (
+                            <span
+                              key={i}
+                              title={st.toUpperCase()}
+                              className={cn(
+                                "w-2.5 h-2.5 rounded-full",
+                                st === "present"
+                                  ? "bg-seafoam"
+                                  : st === "late"
+                                  ? "bg-amber-400"
+                                  : st === "excused"
+                                  ? "bg-sky-400"
+                                  : "bg-coral"
+                              )}
+                            />
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">—</span>
+                        )}
                       </div>
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-2">
                         <span className="font-extrabold text-aqua">{s?.rate || 0}%</span>
-                        <div className="w-14 h-1.5 rounded-full bg-secondary overflow-hidden">
+                        <div className="w-12 h-1.5 rounded-full bg-secondary overflow-hidden">
                           <div
                             className="h-full bg-aqua rounded-full"
                             style={{ width: `${s?.rate || 0}%` }}
@@ -480,11 +557,6 @@ export function AnalyticsClient({
                         <Flame className="w-3.5 h-3.5 fill-coral" />
                         <span>{s?.currentStreak || 0}</span>
                       </div>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className="text-[10px] font-bold">
-                        {rank.pollaTag}
-                      </span>
                     </td>
                     <td className="py-3 px-3 text-seafoam font-semibold">{s?.present || 0}</td>
                     <td className="py-3 px-3 text-amber-400 font-semibold">{s?.late || 0}</td>

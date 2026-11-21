@@ -32,6 +32,10 @@ export interface Swimmer {
     rate: number;
     currentStreak: number;
     longestStreak: number;
+    gpsCheckins?: number;
+    totalLateMinutes?: number;
+    sessionsEvaluated?: number;
+    recentForm?: AttendanceStatus[];
   };
 }
 
