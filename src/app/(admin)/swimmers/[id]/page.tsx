@@ -13,9 +13,15 @@ import {
   Phone,
   Award,
   CalendarDays,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import { DataStore } from "@/lib/data-store";
-import { getSwimmerSquadRank } from "@/lib/squad-ranks";
+import {
+  getSwimmerSquadRank,
+  calculateSwimmerPoints,
+  buildPointsLedger,
+} from "@/lib/squad-ranks";
 import { getInitials, formatTime, cn } from "@/lib/utils";
 import { SwimmerPinAdminControl } from "@/components/swimmers/swimmer-pin-admin-control";
 
@@ -34,19 +40,10 @@ export default async function SwimmerProfilePage({
     notFound();
   }
 
-  const allSessions = DataStore.getSessions({ status: "all" });
-  const allAttendance = DataStore.getSessionAttendance(swimmer.id); // Or find records by swimmer
-  const swimmerRecords = allSessions.map((session) => {
-    const record = DataStore.getSessionAttendance(session.id).find(
-      (a) => a.swimmer_id === swimmer.id
-    );
-    return {
-      session,
-      record,
-    };
-  }).filter((item) => item.record !== undefined);
-
+  const historyRecords = DataStore.getSwimmerAttendanceHistory(swimmer.id);
+  const pointsLedger = buildPointsLedger(historyRecords);
   const stats = swimmer.attendance_stats;
+  const swimmerPoints = calculateSwimmerPoints(stats);
   const attendedCount = (stats?.present || 0) + (stats?.late || 0);
   const rank = getSwimmerSquadRank(stats);
 
@@ -186,7 +183,20 @@ export default async function SwimmerProfilePage({
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        <div
+          className="p-4 rounded-2xl border border-aqua/30 bg-aqua/10 text-center"
+          title={swimmerPoints.breakdownText}
+        >
+          <div className="text-xs text-aqua font-bold">Aqua Points</div>
+          <div className="text-2xl font-black font-mono text-aqua mt-1">
+            {swimmerPoints.points}
+          </div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">
+            {swimmerPoints.attendedCount}/{swimmerPoints.sessionsCount} swims
+          </div>
+        </div>
+
         <div className="p-4 rounded-2xl border border-border bg-card text-center">
           <div className="text-xs text-muted-foreground font-bold">Attendance Rate</div>
           <div className="text-2xl font-extrabold text-aqua mt-1">
@@ -268,57 +278,133 @@ export default async function SwimmerProfilePage({
         </div>
       </div>
 
-      {/* Attendance History Timeline */}
-      <div className="p-6 rounded-2xl border border-border bg-card">
-        <h2 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
-          <CalendarDays className="w-4 h-4 text-aqua" />
-          <span>Session Attendance History</span>
-        </h2>
+      {/* Attendance & Points Ledger Timeline */}
+      <div className="p-6 rounded-2xl border border-border bg-card space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border">
+          <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <CalendarDays className="w-4 h-4 text-aqua" />
+            <span>Session Attendance &amp; Points Ledger</span>
+          </h2>
+          <div className="flex items-center gap-2 text-[11px] font-mono font-bold">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-seafoam/10 text-seafoam border border-seafoam/25">
+              <TrendingUp className="w-3 h-3" />
+              +{pointsLedger.summary.totalGained}
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-coral/10 text-coral border border-coral/25">
+              <TrendingDown className="w-3 h-3" />
+              {pointsLedger.summary.totalLost > 0 ? `−${pointsLedger.summary.totalLost}` : "0"}
+            </span>
+            <span className="px-2 py-0.5 rounded-lg bg-aqua/10 text-aqua border border-aqua/30">
+              Net {pointsLedger.summary.netPoints} pts
+            </span>
+          </div>
+        </div>
 
         <div className="divide-y divide-border/60">
-          {swimmerRecords.length > 0 ? (
-            swimmerRecords.map(({ session, record }) => (
-              <div
-                key={session.id}
-                className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-              >
-                <div>
-                  <Link
-                    href={`/sessions/${session.id}`}
-                    className="font-bold text-xs text-foreground hover:text-aqua transition-colors"
-                  >
-                    {session.title}
-                  </Link>
-                  <div className="text-[11px] text-muted-foreground mt-0.5">
-                    {session.date} &bull; {formatTime(session.start_time)} &bull; {session.location}
-                  </div>
-                  {record?.notes && (
-                    <div className="text-[11px] text-aqua italic mt-1">
-                      &ldquo;{record.notes}&rdquo;
+          {pointsLedger.entries.length > 0 ? (
+            pointsLedger.entries.map(({ record, isScored, delta, runningBalance, chips }) => {
+              const session = record.session;
+              return (
+                <div
+                  key={record.id}
+                  className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {session ? (
+                        <Link
+                          href={`/sessions/${session.id}`}
+                          className="font-bold text-xs text-foreground hover:text-aqua transition-colors"
+                        >
+                          {session.title}
+                        </Link>
+                      ) : (
+                        <span className="font-bold text-xs text-foreground">
+                          Swimming Practice
+                        </span>
+                      )}
+                      <span
+                        className={cn(
+                          "text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border",
+                          record.status === "present"
+                            ? "bg-seafoam/10 text-seafoam border-seafoam/30"
+                            : record.status === "late"
+                            ? "bg-amber-400/10 text-amber-400 border-amber-400/30"
+                            : record.status === "absent"
+                            ? "bg-coral/10 text-coral border-coral/30"
+                            : record.status === "excused"
+                            ? "bg-sky-400/10 text-sky-400 border-sky-400/30"
+                            : "bg-secondary text-muted-foreground border-border"
+                        )}
+                      >
+                        {record.status}
+                      </span>
                     </div>
-                  )}
-                </div>
 
-                <div>
-                  <span
-                    className={cn(
-                      "text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border",
-                      record?.status === "present"
-                        ? "bg-seafoam/10 text-seafoam border-seafoam/30"
-                        : record?.status === "late"
-                        ? "bg-amber-400/10 text-amber-400 border-amber-400/30"
-                        : record?.status === "absent"
-                        ? "bg-coral/10 text-coral border-coral/30"
-                        : record?.status === "excused"
-                        ? "bg-sky-400/10 text-sky-400 border-sky-400/30"
-                        : "bg-secondary text-muted-foreground border-border"
+                    {session && (
+                      <div className="text-[11px] text-muted-foreground">
+                        {session.date} &bull; {formatTime(session.start_time)} &bull; {session.location}
+                      </div>
                     )}
-                  >
-                    {record?.status || "not_marked"}
-                  </span>
+
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      {chips.map((chip, idx) => (
+                        <span
+                          key={idx}
+                          className={cn(
+                            "px-1.5 py-0.5 rounded-md text-[10px] font-bold border",
+                            chip.tone === "gain"
+                              ? "bg-seafoam/10 text-seafoam border-seafoam/25"
+                              : chip.tone === "bonus"
+                              ? "bg-aqua/10 text-aqua border-aqua/25"
+                              : chip.tone === "loss"
+                              ? "bg-coral/10 text-coral border-coral/25"
+                              : "bg-secondary/60 text-muted-foreground border-border"
+                          )}
+                        >
+                          {chip.label}
+                          {chip.delta !== 0
+                            ? ` ${chip.delta > 0 ? `+${chip.delta}` : `−${Math.abs(chip.delta)}`}`
+                            : ""}
+                        </span>
+                      ))}
+                    </div>
+
+                    {record.notes && (
+                      <div className="text-[11px] text-aqua italic">
+                        &ldquo;{record.notes}&rdquo;
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex sm:flex-col items-center sm:items-end justify-between gap-1 shrink-0">
+                    {isScored ? (
+                      <>
+                        <span
+                          className={cn(
+                            "font-mono font-black text-xs px-2.5 py-0.5 rounded-lg border",
+                            delta > 0
+                              ? "bg-seafoam/15 text-seafoam border-seafoam/30"
+                              : delta < 0
+                              ? "bg-coral/15 text-coral border-coral/30"
+                              : "bg-secondary text-muted-foreground border-border"
+                          )}
+                        >
+                          {delta > 0 ? `+${delta}` : delta < 0 ? `−${Math.abs(delta)}` : "0"} pts
+                        </span>
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          Bal: {runningBalance} pts
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-secondary text-muted-foreground border border-border">
+                        Not scored yet
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           ) : (
             <div className="py-6 text-center text-xs text-muted-foreground">
               No sessions recorded for this swimmer yet.

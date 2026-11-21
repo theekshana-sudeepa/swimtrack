@@ -6,6 +6,7 @@ import {
   calculateSwimmerPoints,
   rankSquadLeaderboard,
   computeSquadCrowns,
+  buildPointsLedger,
 } from "./squad-ranks";
 
 describe("Squad Rank, Aqua Points & Polla Meter Logic", () => {
@@ -200,5 +201,117 @@ describe("Squad Rank, Aqua Points & Polla Meter Logic", () => {
 
     const pollaRole = getSessionRoleForSwimmer("absent", null, { absent: 1 });
     expect(pollaRole.role).toBe("Polla of the Day");
+  });
+
+  it("builds a per-session Aqua Points ledger whose running total matches calculateSwimmerPoints exactly", () => {
+    const records = [
+      {
+        id: "r1",
+        status: "present" as const,
+        checkin_method: "geofence_self" as const,
+        session: {
+          id: "s1",
+          title: "Week 1",
+          date: "2026-10-01",
+          location: "Pool A",
+          status: "completed" as const,
+          is_finalized: true,
+        },
+      },
+      {
+        id: "r2",
+        status: "late" as const,
+        notes: "Arrived at 03:15 PM (15m late)",
+        checkin_method: "coach_manual" as const,
+        session: {
+          id: "s2",
+          title: "Week 2",
+          date: "2026-10-08",
+          location: "Pool A",
+          status: "completed" as const,
+          is_finalized: true,
+        },
+      },
+      {
+        id: "r3",
+        status: "absent" as const,
+        session: {
+          id: "s3",
+          title: "Week 3",
+          date: "2026-10-15",
+          location: "Pool A",
+          status: "completed" as const,
+          is_finalized: true,
+        },
+      },
+      {
+        id: "r4",
+        status: "excused" as const,
+        notes: "Excused: Exam",
+        session: {
+          id: "s4",
+          title: "Week 4",
+          date: "2026-10-22",
+          location: "Pool A",
+          status: "completed" as const,
+          is_finalized: true,
+        },
+      },
+      {
+        id: "r5",
+        status: "present" as const,
+        checkin_method: "coach_manual" as const,
+        session: {
+          id: "s5",
+          title: "Week 5",
+          date: "2026-10-29",
+          location: "Pool A",
+          status: "completed" as const,
+          is_finalized: true,
+        },
+      },
+      {
+        id: "r6",
+        status: "not_marked" as const,
+        session: {
+          id: "s6",
+          title: "Upcoming Week 6",
+          date: "2026-11-30",
+          location: "Pool A",
+          status: "scheduled" as const,
+          is_finalized: false,
+        },
+      },
+    ];
+
+    const ledger = buildPointsLedger(records);
+    const expected = calculateSwimmerPoints({
+      present: 2,
+      late: 1,
+      absent: 1,
+      excused: 1,
+      currentStreak: 1,
+      gpsCheckins: 1,
+      totalLateMinutes: 15,
+    });
+
+    // Exact point-for-point match with calculateSwimmerPoints!
+    expect(ledger.summary.netPoints).toBe(expected.points);
+    expect(ledger.summary.scoredSessionsCount).toBe(5);
+
+    // Entries are newest-first: r6 (upcoming, unscored) -> r5 -> r4 -> r3 -> r2 -> r1
+    expect(ledger.entries[0].record.id).toBe("r6");
+    expect(ledger.entries[0].isScored).toBe(false);
+
+    // Week 3 absent broke a 2x streak (-40 polla + -30 streak lost = -70)
+    const week3 = ledger.entries.find((e) => e.record.id === "r3")!;
+    expect(week3.delta).toBe(-70);
+    expect(week3.chips.some((c) => c.label.includes("Polla") && c.delta === -40)).toBe(true);
+    expect(week3.chips.some((c) => c.label.includes("Streak Lost") && c.delta === -30)).toBe(true);
+
+    // Week 1 had On-Time (+100) + GPS (+10) + Streak 1x (+15) = +125
+    const week1 = ledger.entries.find((e) => e.record.id === "r1")!;
+    expect(week1.delta).toBe(125);
+    expect(week1.runningBalance).toBe(125);
   });
 });

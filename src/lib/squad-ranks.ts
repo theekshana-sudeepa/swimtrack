@@ -931,6 +931,252 @@ export function computeSquadCrowns<
   return crowns;
 }
 
+export interface PointsLedgerChip {
+  label: string;
+  delta: number;
+  tone: "gain" | "loss" | "bonus" | "neutral";
+}
+
+export interface PointsLedgerInput {
+  id: string;
+  status: AttendanceStatus;
+  notes?: string | null;
+  checkin_method?: "coach_manual" | "geofence_self" | "bulk" | null;
+  marked_at?: string;
+  session?: {
+    id: string;
+    title: string;
+    date: string;
+    start_time?: string;
+    location: string;
+    status: "scheduled" | "completed" | "cancelled";
+    is_finalized?: boolean;
+  } | null;
+}
+
+export interface PointsLedgerEntry<T extends PointsLedgerInput = PointsLedgerInput> {
+  record: T;
+  /** Whether this session counts toward the official Aqua Points total (completed/finalized). */
+  isScored: boolean;
+  /** Net points change from this session (includes base, GPS bonus, and streak gain/loss). */
+  delta: number;
+  /** Running Aqua Points balance after this session (floored at 0 for display). */
+  runningBalance: number;
+  /** Active streak count immediately after this session. */
+  streakAfter: number;
+  /** Visual breakdown pills showing exactly what was gained or lost in this session. */
+  chips: PointsLedgerChip[];
+}
+
+export interface PointsLedgerSummary {
+  netPoints: number;
+  rawPoints: number;
+  totalGained: number;
+  totalLost: number;
+  presentPts: number;
+  latePts: number;
+  latePenaltyPts: number;
+  excusedPts: number;
+  absentPts: number;
+  streakBonus: number;
+  gpsBonus: number;
+  scoredSessionsCount: number;
+}
+
+export interface PointsLedgerResult<T extends PointsLedgerInput = PointsLedgerInput> {
+  /** Entries sorted newest-first for timeline display. */
+  entries: PointsLedgerEntry<T>[];
+  summary: PointsLedgerSummary;
+}
+
+/**
+ * Builds a transparent, session-by-session Aqua Points ledger showing exactly how a swimmer
+ * gained or lost points over time (base turnout, late-minute deductions, GPS bonuses, and
+ * streak build/break deltas), mathematically guaranteed to match `calculateSwimmerPoints()`.
+ */
+export function buildPointsLedger<T extends PointsLedgerInput>(
+  records: T[]
+): PointsLedgerResult<T> {
+  if (!records || records.length === 0) {
+    return {
+      entries: [],
+      summary: {
+        netPoints: 0,
+        rawPoints: 0,
+        totalGained: 0,
+        totalLost: 0,
+        presentPts: 0,
+        latePts: 0,
+        latePenaltyPts: 0,
+        excusedPts: 0,
+        absentPts: 0,
+        streakBonus: 0,
+        gpsBonus: 0,
+        scoredSessionsCount: 0,
+      },
+    };
+  }
+
+  const hasAnyCompleted = records.some(
+    (r) => r.session && (r.session.status === "completed" || r.session.is_finalized)
+  );
+
+  // Sort chronologically (oldest -> newest) to replay running streak & balance accurately
+  const chronological = [...records].sort((a, b) => {
+    const dateCmp = (a.session?.date || "").localeCompare(b.session?.date || "");
+    if (dateCmp !== 0) return dateCmp;
+    return (a.session?.start_time || "").localeCompare(b.session?.start_time || "");
+  });
+
+  let runningStreak = 0;
+  let prevStreakBonus = 0;
+  let runningRawBalance = 0;
+
+  let presentPts = 0;
+  let latePts = 0;
+  let latePenaltyPts = 0;
+  let excusedPts = 0;
+  let absentPts = 0;
+  let gpsBonus = 0;
+  let scoredSessionsCount = 0;
+
+  const scoredEntries: PointsLedgerEntry<T>[] = [];
+
+  for (const record of chronological) {
+    const sess = record.session;
+    const isCancelled = sess?.status === "cancelled";
+    const isCompleted = Boolean(sess && (sess.status === "completed" || sess.is_finalized));
+    const isScored =
+      !isCancelled &&
+      (hasAnyCompleted ? isCompleted : record.status !== "not_marked");
+
+    if (!isScored) {
+      scoredEntries.push({
+        record,
+        isScored: false,
+        delta: 0,
+        runningBalance: Math.max(0, runningRawBalance),
+        streakAfter: runningStreak,
+        chips: [
+          {
+            label: isCancelled ? "Session Cancelled" : "Upcoming · Pending",
+            delta: 0,
+            tone: "neutral",
+          },
+        ],
+      });
+      continue;
+    }
+
+    scoredSessionsCount++;
+    const chips: PointsLedgerChip[] = [];
+    let sessionDelta = 0;
+    const prevStreak = runningStreak;
+
+    if (record.status === "present") {
+      presentPts += SQUAD_POINTS_RULES.present;
+      sessionDelta += SQUAD_POINTS_RULES.present;
+      chips.push({ label: "On-Time", delta: SQUAD_POINTS_RULES.present, tone: "gain" });
+      runningStreak++;
+    } else if (record.status === "late") {
+      const lateInfo = parseLateInfo(record.notes);
+      const mins = Math.max(0, lateInfo?.minutesLate || 0);
+      const penalty = Math.min(
+        SQUAD_POINTS_RULES.lateMaxPenaltyPerSession,
+        mins * SQUAD_POINTS_RULES.lateMinutePenalty
+      );
+      const netLate = Math.max(0, SQUAD_POINTS_RULES.lateBase - penalty);
+      latePts += netLate;
+      latePenaltyPts += penalty;
+      sessionDelta += netLate;
+      chips.push({ label: "Late Arrival", delta: SQUAD_POINTS_RULES.lateBase, tone: "gain" });
+      if (penalty > 0) {
+        chips.push({
+          label: `${mins}m late`,
+          delta: -penalty,
+          tone: "loss",
+        });
+      }
+      runningStreak++;
+    } else if (record.status === "excused") {
+      excusedPts += SQUAD_POINTS_RULES.excused;
+      sessionDelta += SQUAD_POINTS_RULES.excused;
+      chips.push({ label: "Approved Leave", delta: SQUAD_POINTS_RULES.excused, tone: "neutral" });
+      // Streak stays paused on excused
+    } else {
+      // absent (or unmarked in completed session)
+      absentPts += SQUAD_POINTS_RULES.absent;
+      sessionDelta += SQUAD_POINTS_RULES.absent;
+      chips.push({ label: "Polla Penalty", delta: SQUAD_POINTS_RULES.absent, tone: "loss" });
+      runningStreak = 0;
+    }
+
+    // Poolside GPS Check-in bonus
+    if (
+      (record.status === "present" || record.status === "late") &&
+      record.checkin_method === "geofence_self"
+    ) {
+      gpsBonus += SQUAD_POINTS_RULES.gpsBonus;
+      sessionDelta += SQUAD_POINTS_RULES.gpsBonus;
+      chips.push({ label: "GPS Poolside", delta: SQUAD_POINTS_RULES.gpsBonus, tone: "bonus" });
+    }
+
+    // Active streak gain or break delta
+    const newStreakBonus = runningStreak * SQUAD_POINTS_RULES.streakBonusPerSession;
+    const streakDelta = newStreakBonus - prevStreakBonus;
+    if (streakDelta > 0) {
+      sessionDelta += streakDelta;
+      chips.push({
+        label: `🔥 Streak ${runningStreak}x`,
+        delta: streakDelta,
+        tone: "bonus",
+      });
+    } else if (streakDelta < 0) {
+      sessionDelta += streakDelta;
+      chips.push({
+        label: `💔 ${prevStreak}x Streak Lost`,
+        delta: streakDelta,
+        tone: "loss",
+      });
+    }
+    prevStreakBonus = newStreakBonus;
+
+    runningRawBalance += sessionDelta;
+
+    scoredEntries.push({
+      record,
+      isScored: true,
+      delta: sessionDelta,
+      runningBalance: Math.max(0, runningRawBalance),
+      streakAfter: runningStreak,
+      chips,
+    });
+  }
+
+  const streakBonus = prevStreakBonus;
+  const totalGained = presentPts + latePts + excusedPts + streakBonus + gpsBonus;
+  const totalLost = Math.abs(absentPts) + latePenaltyPts;
+
+  // Return newest-first for timeline display
+  return {
+    entries: scoredEntries.reverse(),
+    summary: {
+      netPoints: Math.max(0, runningRawBalance),
+      rawPoints: runningRawBalance,
+      totalGained,
+      totalLost,
+      presentPts,
+      latePts,
+      latePenaltyPts,
+      excusedPts,
+      absentPts,
+      streakBonus,
+      gpsBonus,
+      scoredSessionsCount,
+    },
+  };
+}
+
 /**
  * Assigns a dynamic session role for a swimmer within a specific session,
  * based on their session attendance state (present, late, absent, excused) and notes.

@@ -25,6 +25,10 @@ import {
   Trophy,
   Award,
   LogOut,
+  ChevronDown,
+  ChevronUp,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import { Swimmer, SwimSession, SquadMessage, PoolVenue } from "@/types/database";
 import {
@@ -33,6 +37,7 @@ import {
   rankSquadLeaderboard,
   computeSquadCrowns,
   SQUAD_POINTS_RULES,
+  buildPointsLedger,
 } from "@/lib/squad-ranks";
 import { formatTime, cn } from "@/lib/utils";
 import {
@@ -49,6 +54,7 @@ interface HistoryRecord {
   id: string;
   status: "not_marked" | "present" | "absent" | "late" | "excused";
   notes?: string | null;
+  checkin_method?: "coach_manual" | "geofence_self" | "bulk" | null;
   marked_at?: string;
   session?: SwimSession | null;
 }
@@ -98,6 +104,8 @@ export function SwimmerPortalClient({
     [myRanking, myStats]
   );
   const [showPointsGuide, setShowPointsGuide] = React.useState(false);
+  const [expandedFriendId, setExpandedFriendId] = React.useState<string | null>(null);
+  const pointsLedger = React.useMemo(() => buildPointsLedger(history), [history]);
 
   // Squad Persona Rank Calculation
   const squadRank = myRanking?.squadRank ?? getSwimmerSquadRank(myStats);
@@ -685,122 +693,190 @@ export function SwimmerPortalClient({
                 <span>Points &bull; Form &bull; Streak</span>
               </div>
 
-              <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
                 {rankedFriends.map((entry) => {
                   const { swimmer: friend, rank: pos, isTied, points, squadRank: friendRank, roastLine, crowns } = entry;
                   const isCurrent = friend.id === swimmer.id;
+                  const isExpanded = expandedFriendId === friend.id;
                   const friendName = friend.nickname
                     ? `${friend.full_name} ("${friend.nickname}")`
                     : friend.full_name;
                   const recentForm = friend.attendance_stats?.recentForm || [];
+                  const fStats = friend.attendance_stats;
+                  const friendLatePenalty = Math.max(
+                    0,
+                    (fStats?.late || 0) * SQUAD_POINTS_RULES.lateBase - points.latePts
+                  );
 
                   return (
                     <div
                       key={friend.id}
-                      title={points.breakdownText}
                       className={cn(
-                        "p-3.5 rounded-2xl border text-xs flex items-center justify-between gap-3 transition-all",
+                        "rounded-2xl border text-xs transition-all overflow-hidden",
                         isCurrent
                           ? "bg-aqua/10 border-aqua/40 ring-1 ring-aqua/30 shadow-sm"
-                          : "bg-secondary/25 border-border/60"
+                          : "bg-secondary/25 border-border/60 hover:border-aqua/30"
                       )}
                     >
-                      <div className="flex items-start gap-2.5 min-w-0">
-                        {/* True Competition Position Badge (=1 for shared ties!) */}
-                        <div
-                          className={cn(
-                            "min-w-[28px] h-7 px-1.5 rounded-lg flex items-center justify-center font-black text-[11px] shrink-0 mt-0.5",
-                            pos === 1
-                              ? "bg-amber-400 text-ocean-950 shadow-xs"
-                              : pos === 2
-                              ? "bg-slate-300 text-ocean-950"
-                              : pos === 3
-                              ? "bg-amber-600/80 text-white"
-                              : "bg-secondary text-muted-foreground"
-                          )}
-                        >
-                          {isTied ? `=${pos}` : pos}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedFriendId((prev) => (prev === friend.id ? null : friend.id))
+                        }
+                        className="w-full text-left p-3.5 flex items-center justify-between gap-3"
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          {/* True Competition Position Badge (=1 for shared ties!) */}
+                          <div
+                            className={cn(
+                              "min-w-[28px] h-7 px-1.5 rounded-lg flex items-center justify-center font-black text-[11px] shrink-0 mt-0.5",
+                              pos === 1
+                                ? "bg-amber-400 text-ocean-950 shadow-xs"
+                                : pos === 2
+                                ? "bg-slate-300 text-ocean-950"
+                                : pos === 3
+                                ? "bg-amber-600/80 text-white"
+                                : "bg-secondary text-muted-foreground"
+                            )}
+                          >
+                            {isTied ? `=${pos}` : pos}
+                          </div>
+
+                          {/* Name, Title, Roast & Form Dots */}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className={cn(
+                                  "font-bold text-xs truncate",
+                                  isCurrent ? "text-aqua" : "text-foreground"
+                                )}
+                              >
+                                {friendName}
+                              </span>
+                              {isCurrent && (
+                                <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.5 rounded-full bg-aqua/20 text-aqua border border-aqua/30">
+                                  You
+                                </span>
+                              )}
+                              {crowns.map((c) => (
+                                <span
+                                  key={c}
+                                  className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30"
+                                >
+                                  {c}
+                                </span>
+                              ))}
+                            </div>
+
+                            <div className="text-[11px] font-semibold text-foreground/90 flex items-center gap-1 mt-0.5">
+                              <span>{friendRank.emoji}</span>
+                              <span>{friendRank.title}</span>
+                            </div>
+
+                            <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                              {roastLine}
+                            </p>
+                          </div>
                         </div>
 
-                        {/* Name, Title, Roast & Form Dots */}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span
-                              className={cn(
-                                "font-bold text-xs truncate",
-                                isCurrent ? "text-aqua" : "text-foreground"
-                              )}
-                            >
-                              {friendName}
+                        {/* Right Column: Aqua Points, Swims, Form Dots & Streak */}
+                        <div className="flex flex-col items-end gap-1 shrink-0 text-right">
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex items-baseline gap-1">
+                              <span className="font-mono font-black text-sm text-aqua">
+                                {points.points}
+                              </span>
+                              <span className="text-[10px] font-bold text-muted-foreground">pts</span>
+                            </div>
+                            {isExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5 text-aqua" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
+                            <span>
+                              {points.attendedCount}/{points.sessionsCount}
                             </span>
-                            {isCurrent && (
-                              <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.5 rounded-full bg-aqua/20 text-aqua border border-aqua/30">
-                                You
+                            <span className="flex items-center gap-0.5 font-bold text-amber-400">
+                              <Flame className="w-3 h-3 fill-amber-400" />
+                              <span>{fStats?.currentStreak || 0}</span>
+                            </span>
+                          </div>
+
+                          {recentForm.length > 0 && (
+                            <div
+                              className="flex items-center gap-1 pt-0.5"
+                              title="Last 5 practices (oldest → newest)"
+                            >
+                              {recentForm.map((st, idx) => (
+                                <span
+                                  key={idx}
+                                  className={cn(
+                                    "w-2 h-2 rounded-full",
+                                    st === "present"
+                                      ? "bg-seafoam"
+                                      : st === "late"
+                                      ? "bg-amber-400"
+                                      : st === "excused"
+                                      ? "bg-sky-400"
+                                      : "bg-coral"
+                                  )}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Tap-to-Inspect Points Receipt (Gains vs Losses) */}
+                      {isExpanded && (
+                        <div className="px-3.5 pb-3.5 pt-2.5 border-t border-border/60 bg-background/40 space-y-2 animate-in fade-in duration-150">
+                          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            <span>Points Receipt (Gains &amp; Losses)</span>
+                            <span className="font-mono text-aqua">Net: {points.points} pts</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                            {(fStats?.present || 0) > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-seafoam/15 text-seafoam border border-seafoam/30">
+                                ✓ {fStats?.present}x On-Time +{points.presentPts}
                               </span>
                             )}
-                            {crowns.map((c) => (
-                              <span
-                                key={c}
-                                className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30"
-                              >
-                                {c}
+                            {(fStats?.late || 0) > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 border border-amber-400/30">
+                                ⏰ {fStats?.late}x Late +{points.latePts}
+                                {friendLatePenalty > 0 ? ` (−${friendLatePenalty}m)` : ""}
                               </span>
-                            ))}
+                            )}
+                            {(fStats?.excused || 0) > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-sky-400/15 text-sky-300 border border-sky-400/30">
+                                🩹 {fStats?.excused}x Excused +{points.excusedPts}
+                              </span>
+                            )}
+                            {points.streakBonus > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-400/10 text-amber-400 border border-amber-400/30">
+                                🔥 {fStats?.currentStreak}x Streak +{points.streakBonus}
+                              </span>
+                            )}
+                            {points.gpsBonus > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-aqua/15 text-aqua border border-aqua/30">
+                                📡 {fStats?.gpsCheckins}x GPS +{points.gpsBonus}
+                              </span>
+                            )}
+                            {(fStats?.absent || 0) > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-coral/15 text-coral border border-coral/30">
+                                🌴 {fStats?.absent}x Polla {points.absentPts}
+                              </span>
+                            )}
+                            {points.sessionsCount === 0 && (
+                              <span className="text-muted-foreground font-normal">
+                                No completed practices scored yet.
+                              </span>
+                            )}
                           </div>
-
-                          <div className="text-[11px] font-semibold text-foreground/90 flex items-center gap-1 mt-0.5">
-                            <span>{friendRank.emoji}</span>
-                            <span>{friendRank.title}</span>
-                          </div>
-
-                          <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
-                            {roastLine}
-                          </p>
                         </div>
-                      </div>
-
-                      {/* Right Column: Aqua Points, Swims, Form Dots & Streak */}
-                      <div className="flex flex-col items-end gap-1 shrink-0 text-right">
-                        <div className="flex items-baseline gap-1">
-                          <span className="font-mono font-black text-sm text-aqua">
-                            {points.points}
-                          </span>
-                          <span className="text-[10px] font-bold text-muted-foreground">pts</span>
-                        </div>
-
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
-                          <span>
-                            {points.attendedCount}/{points.sessionsCount}
-                          </span>
-                          <span className="flex items-center gap-0.5 font-bold text-amber-400">
-                            <Flame className="w-3 h-3 fill-amber-400" />
-                            <span>{friend.attendance_stats?.currentStreak || 0}</span>
-                          </span>
-                        </div>
-
-                        {recentForm.length > 0 && (
-                          <div
-                            className="flex items-center gap-1 pt-0.5"
-                            title="Last 5 practices (oldest → newest)"
-                          >
-                            {recentForm.map((st, idx) => (
-                              <span
-                                key={idx}
-                                className={cn(
-                                  "w-2 h-2 rounded-full",
-                                  st === "present"
-                                    ? "bg-seafoam"
-                                    : st === "late"
-                                    ? "bg-amber-400"
-                                    : st === "excused"
-                                    ? "bg-sky-400"
-                                    : "bg-coral"
-                                )}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
                   );
                 })}
@@ -809,54 +885,191 @@ export function SwimmerPortalClient({
           </div>
         )}
 
-        {/* My Past Attendance Timeline */}
+        {/* My Points & Attendance History Ledger */}
         <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-border">
-            <h2 className="font-extrabold text-base text-foreground">
-              My Attendance History
-            </h2>
-            <span className="text-xs text-muted-foreground">
-              {history.length} sessions logged
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border">
+            <div>
+              <h2 className="font-extrabold text-base text-foreground">
+                My Points &amp; Attendance History
+              </h2>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Every point gained and lost across each practice session
+              </p>
+            </div>
+            <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-aqua/10 text-aqua border border-aqua/30">
+              {pointsLedger.summary.netPoints} pts total
             </span>
           </div>
 
+          {/* Gains vs Losses Visual Summary Strip */}
+          {pointsLedger.summary.scoredSessionsCount > 0 && (
+            <div className="p-4 rounded-2xl bg-secondary/35 border border-border/80 space-y-3">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-2.5 rounded-xl bg-seafoam/10 border border-seafoam/25">
+                  <div className="text-[10px] font-bold text-seafoam uppercase flex items-center justify-center gap-1">
+                    <TrendingUp className="w-3 h-3" />
+                    <span>Gained</span>
+                  </div>
+                  <div className="font-mono font-black text-sm sm:text-base text-seafoam mt-0.5">
+                    +{pointsLedger.summary.totalGained}
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-coral/10 border border-coral/25">
+                  <div className="text-[10px] font-bold text-coral uppercase flex items-center justify-center gap-1">
+                    <TrendingDown className="w-3 h-3" />
+                    <span>Lost</span>
+                  </div>
+                  <div className="font-mono font-black text-sm sm:text-base text-coral mt-0.5">
+                    {pointsLedger.summary.totalLost > 0 ? `−${pointsLedger.summary.totalLost}` : "0"}
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-aqua/10 border border-aqua/25">
+                  <div className="text-[10px] font-bold text-aqua uppercase">
+                    Net Balance
+                  </div>
+                  <div className="font-mono font-black text-sm sm:text-base text-aqua mt-0.5">
+                    {pointsLedger.summary.netPoints} pts
+                  </div>
+                </div>
+              </div>
+
+              {/* Category Breakdown Chips */}
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                {pointsLedger.summary.presentPts > 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-seafoam/15 text-seafoam border border-seafoam/30">
+                    ✓ On-Time +{pointsLedger.summary.presentPts}
+                  </span>
+                )}
+                {pointsLedger.summary.latePts > 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 border border-amber-400/30">
+                    ⏰ Late +{pointsLedger.summary.latePts}
+                  </span>
+                )}
+                {pointsLedger.summary.excusedPts > 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-sky-400/15 text-sky-300 border border-sky-400/30">
+                    🩹 Excused +{pointsLedger.summary.excusedPts}
+                  </span>
+                )}
+                {pointsLedger.summary.streakBonus > 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-amber-400/10 text-amber-400 border border-amber-400/30">
+                    🔥 Active Streak +{pointsLedger.summary.streakBonus}
+                  </span>
+                )}
+                {pointsLedger.summary.gpsBonus > 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-aqua/15 text-aqua border border-aqua/30">
+                    📡 GPS Bonus +{pointsLedger.summary.gpsBonus}
+                  </span>
+                )}
+                {pointsLedger.summary.absentPts < 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-coral/15 text-coral border border-coral/30">
+                    🌴 Polla {pointsLedger.summary.absentPts}
+                  </span>
+                )}
+                {pointsLedger.summary.latePenaltyPts > 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-coral/15 text-coral border border-coral/30">
+                    ⏱️ Late Delay −{pointsLedger.summary.latePenaltyPts}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Session-by-Session Points Timeline */}
           <div className="divide-y divide-border/60">
-            {history.length > 0 ? (
-              history.map((record) => {
+            {pointsLedger.entries.length > 0 ? (
+              pointsLedger.entries.map((item) => {
+                const { record, isScored, delta, runningBalance, chips } = item;
                 const session = record.session;
                 return (
-                  <div key={record.id} className="py-3 flex items-center justify-between gap-3 text-xs">
-                    <div>
-                      <p className="font-bold text-foreground">
-                        {session?.title || "Swimming Practice"}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <div
+                    key={record.id}
+                    className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-foreground">
+                          {session?.title || "Swimming Practice"}
+                        </p>
+                        <span
+                          className={cn(
+                            "px-2 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider",
+                            record.status === "present"
+                              ? "bg-seafoam/15 text-seafoam border-seafoam/30"
+                              : record.status === "late"
+                              ? "bg-amber-400/15 text-amber-300 border-amber-400/30"
+                              : record.status === "absent"
+                              ? "bg-coral/15 text-coral border-coral/30"
+                              : record.status === "excused"
+                              ? "bg-sky-400/15 text-sky-300 border-sky-400/30"
+                              : "bg-secondary text-muted-foreground border-border"
+                          )}
+                        >
+                          {record.status === "not_marked" ? "Pending" : record.status}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-muted-foreground">
                         {session?.date} &bull; {session?.location}
                       </p>
+
+                      {/* Per-Session Gain/Loss Micro-Chips */}
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        {chips.map((chip, idx) => (
+                          <span
+                            key={idx}
+                            className={cn(
+                              "px-1.5 py-0.5 rounded-md text-[10px] font-bold border",
+                              chip.tone === "gain"
+                                ? "bg-seafoam/10 text-seafoam border-seafoam/25"
+                                : chip.tone === "bonus"
+                                ? "bg-aqua/10 text-aqua border-aqua/25"
+                                : chip.tone === "loss"
+                                ? "bg-coral/10 text-coral border-coral/25"
+                                : "bg-secondary/60 text-muted-foreground border-border"
+                            )}
+                          >
+                            {chip.label}
+                            {chip.delta !== 0
+                              ? ` ${chip.delta > 0 ? `+${chip.delta}` : `−${Math.abs(chip.delta)}`}`
+                              : ""}
+                          </span>
+                        ))}
+                      </div>
+
                       {record.notes && (
-                        <p className="text-[10px] text-ocean-300 italic mt-0.5">
+                        <p className="text-[10px] text-ocean-300 italic">
                           {record.notes}
                         </p>
                       )}
                     </div>
 
-                    <div>
-                      <span
-                        className={cn(
-                          "px-2.5 py-1 rounded-full text-[10px] font-bold border uppercase tracking-wider",
-                          record.status === "present"
-                            ? "bg-seafoam/15 text-seafoam border-seafoam/30"
-                            : record.status === "late"
-                            ? "bg-amber-400/15 text-amber-300 border-amber-400/30"
-                            : record.status === "absent"
-                            ? "bg-coral/15 text-coral border-coral/30"
-                            : record.status === "excused"
-                            ? "bg-sky-400/15 text-sky-300 border-sky-400/30"
-                            : "bg-secondary text-muted-foreground border-border"
-                        )}
-                      >
-                        {record.status === "not_marked" ? "Pending" : record.status}
-                      </span>
+                    {/* Right Column: Session Points Delta & Running Balance */}
+                    <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-1 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-border/40">
+                      {isScored ? (
+                        <>
+                          <span
+                            className={cn(
+                              "font-mono font-black text-sm px-2.5 py-0.5 rounded-lg border",
+                              delta > 0
+                                ? "bg-seafoam/15 text-seafoam border-seafoam/30"
+                                : delta < 0
+                                ? "bg-coral/15 text-coral border-coral/30"
+                                : "bg-secondary text-muted-foreground border-border"
+                            )}
+                          >
+                            {delta > 0 ? `+${delta}` : delta < 0 ? `−${Math.abs(delta)}` : "0"} pts
+                          </span>
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            Bal: {runningBalance} pts
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-secondary text-muted-foreground border border-border">
+                          Not scored yet
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
