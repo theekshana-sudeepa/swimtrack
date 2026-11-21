@@ -165,3 +165,17 @@ export const expenseRateLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 15,
   lockoutMs: 10 * 60 * 1000,
 });
+
+// Pre-swim roll-call pings: Max 20 per 5 minutes per swimmer
+export const rollCallRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 5 * 60 * 1000,
+  maxAttempts: 20,
+  lockoutMs: 5 * 60 * 1000,
+});
+
+// Personal swim log entries: Max 15 per 10 minutes per swimmer
+export const swimLogRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  maxAttempts: 15,
+  lockoutMs: 10 * 60 * 1000,
+});

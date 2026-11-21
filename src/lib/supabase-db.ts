@@ -22,6 +22,11 @@ import {
   SquadExpense,
   SquadExpenseShare,
   ExpenseCategory,
+  SessionRollCall,
+  RollCallStatus,
+  SwimLog,
+  SwimStroke,
+  SwimFeeling,
 } from "@/types/database";
 
 /** Maps a swim_sessions row to the app model (shared by full sync and targeted refresh). */
@@ -208,6 +213,8 @@ export const SupabaseDB = {
         messagesRes,
         reactionsRes,
         expensesRes,
+        rollCallsRes,
+        swimLogsRes,
       ] = await Promise.all([
         supabase
           .from("swimmers")
@@ -257,6 +264,21 @@ export const SupabaseDB = {
             .select("*, squad_expense_shares(*)")
             .order("expense_date", { ascending: false })
             .order("created_at", { ascending: false })
+        ).catch(() => ({ data: null, error: null })),
+        Promise.resolve(
+          supabase
+            .from("session_roll_calls")
+            .select("*")
+            .order("updated_at", { ascending: false })
+            .limit(120)
+        ).catch(() => ({ data: null, error: null })),
+        Promise.resolve(
+          supabase
+            .from("swim_logs")
+            .select("*")
+            .order("log_date", { ascending: false })
+            .order("created_at", { ascending: false })
+            .limit(200)
         ).catch(() => ({ data: null, error: null })),
       ]);
 
@@ -480,6 +502,46 @@ export const SupabaseDB = {
           }
         );
         DataStore.hydrateExpenses(mappedExpenses);
+      }
+
+      // 11. Pre-Swim Live Roll-Calls
+      if (!rollCallsRes.error && Array.isArray(rollCallsRes.data)) {
+        const mappedRollCalls: SessionRollCall[] = rollCallsRes.data.map(
+          (row: Record<string, unknown>) => ({
+            id: row.id as string,
+            session_id: row.session_id as string,
+            swimmer_id: row.swimmer_id as string,
+            swimmer_name: (row.swimmer_name as string) || "Swimmer",
+            status: (row.status as RollCallStatus) || "awake",
+            note: (row.note as string) || null,
+            updated_at: (row.updated_at as string) || new Date().toISOString(),
+          })
+        );
+        DataStore.hydrateRollCalls(mappedRollCalls);
+      }
+
+      // 12. Personal Swim Logs & PRs
+      if (!swimLogsRes.error && Array.isArray(swimLogsRes.data)) {
+        const mappedLogs: SwimLog[] = swimLogsRes.data.map(
+          (row: Record<string, unknown>) => ({
+            id: row.id as string,
+            swimmer_id: row.swimmer_id as string,
+            swimmer_name: (row.swimmer_name as string) || "Swimmer",
+            session_id: (row.session_id as string) || null,
+            log_date: row.log_date as string,
+            distance_meters: Number(row.distance_meters) || 0,
+            laps: row.laps != null ? Number(row.laps) : null,
+            pool_length_meters: Number(row.pool_length_meters) === 50 ? 50 : 25,
+            stroke: (row.stroke as SwimStroke) || "freestyle",
+            duration_minutes: row.duration_minutes != null ? Number(row.duration_minutes) : null,
+            best_50m_seconds: row.best_50m_seconds != null ? Number(row.best_50m_seconds) : null,
+            best_100m_seconds: row.best_100m_seconds != null ? Number(row.best_100m_seconds) : null,
+            feeling: (row.feeling as SwimFeeling) || "strong",
+            notes: (row.notes as string) || null,
+            created_at: (row.created_at as string) || new Date().toISOString(),
+          })
+        );
+        DataStore.hydrateSwimLogs(mappedLogs);
       }
 
       return true;

@@ -15,6 +15,8 @@ import {
   SquadMemoryPhoto,
   SquadMemoryAttendee,
   SquadExpense,
+  SessionRollCall,
+  SwimLog,
   PoolVenue,
 } from "@/types/database";
 import {
@@ -83,6 +85,8 @@ interface StoreState {
   reactions: SquadReaction[];
   memories: SquadMemory[];
   expenses: SquadExpense[];
+  rollCalls: SessionRollCall[];
+  swimLogs: SwimLog[];
   venues: PoolVenue[];
   settings: Record<string, AppSetting>;
 }
@@ -118,6 +122,8 @@ function getInitialStore(forceDemo = false): StoreState {
     reactions: [],
     memories: [],
     expenses: [],
+    rollCalls: [],
+    swimLogs: [],
     venues: buildDefaultSeedVenues(),
     settings: {
       general: {
@@ -166,6 +172,8 @@ export const DataStore = {
     store.reactions = fresh.reactions;
     store.memories = fresh.memories;
     store.expenses = fresh.expenses;
+    store.rollCalls = fresh.rollCalls;
+    store.swimLogs = fresh.swimLogs;
     store.venues = fresh.venues;
     store.settings = fresh.settings;
   },
@@ -181,6 +189,8 @@ export const DataStore = {
     store.reactions = [];
     store.memories = [];
     store.expenses = [];
+    store.rollCalls = [];
+    store.swimLogs = [];
   },
 
   // ---------------------------------------------------------------------------
@@ -2179,5 +2189,79 @@ export const DataStore = {
     const before = store.expenses.length;
     store.expenses = store.expenses.filter((e) => e.id !== id);
     return store.expenses.length < before;
+  },
+
+  // ---------------------------------------------------------------------------
+  // Pre-Swim Live Roll-Call ("I'm Awake / On My Way / Need a Ride")
+  // ---------------------------------------------------------------------------
+  hydrateRollCalls(rollCalls: SessionRollCall[]): void {
+    store.rollCalls = rollCalls
+      .slice()
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  },
+
+  getRollCallsForSession(sessionId: string): SessionRollCall[] {
+    return (store.rollCalls || [])
+      .filter((r) => r.session_id === sessionId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  },
+
+  upsertRollCall(entry: SessionRollCall): SessionRollCall {
+    if (!store.rollCalls) store.rollCalls = [];
+    const idx = store.rollCalls.findIndex(
+      (r) => r.session_id === entry.session_id && r.swimmer_id === entry.swimmer_id
+    );
+    if (idx === -1) store.rollCalls.push(entry);
+    else store.rollCalls[idx] = entry;
+    return entry;
+  },
+
+  deleteRollCall(sessionId: string, swimmerId: string): boolean {
+    if (!store.rollCalls) return false;
+    const before = store.rollCalls.length;
+    store.rollCalls = store.rollCalls.filter(
+      (r) => !(r.session_id === sessionId && r.swimmer_id === swimmerId)
+    );
+    return store.rollCalls.length < before;
+  },
+
+  // ---------------------------------------------------------------------------
+  // Personal Swim Logs, Distance & PRs
+  // ---------------------------------------------------------------------------
+  hydrateSwimLogs(logs: SwimLog[]): void {
+    store.swimLogs = logs
+      .slice()
+      .sort((a, b) => {
+        const d = b.log_date.localeCompare(a.log_date);
+        return d !== 0 ? d : b.created_at.localeCompare(a.created_at);
+      });
+  },
+
+  getSwimLogs(): SwimLog[] {
+    return (store.swimLogs || [])
+      .slice()
+      .sort((a, b) => {
+        const d = b.log_date.localeCompare(a.log_date);
+        return d !== 0 ? d : b.created_at.localeCompare(a.created_at);
+      });
+  },
+
+  getSwimLogById(id: string): SwimLog | null {
+    return (store.swimLogs || []).find((l) => l.id === id) || null;
+  },
+
+  upsertSwimLog(log: SwimLog): SwimLog {
+    if (!store.swimLogs) store.swimLogs = [];
+    const idx = store.swimLogs.findIndex((l) => l.id === log.id);
+    if (idx === -1) store.swimLogs.unshift(log);
+    else store.swimLogs[idx] = log;
+    return log;
+  },
+
+  deleteSwimLog(id: string): boolean {
+    if (!store.swimLogs) return false;
+    const before = store.swimLogs.length;
+    store.swimLogs = store.swimLogs.filter((l) => l.id !== id);
+    return store.swimLogs.length < before;
   },
 };

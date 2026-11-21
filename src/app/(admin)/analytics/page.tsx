@@ -4,16 +4,23 @@ import { AnalyticsClient } from "@/components/analytics/analytics-client";
 
 export const dynamic = "force-dynamic";
 
-export default function AnalyticsPage() {
+export default async function AnalyticsPage() {
+  await DataStore.syncFromSupabase();
   const sessions = DataStore.getSessions({ status: "all" });
   const swimmers = DataStore.getSwimmers({ status: "all" });
   const stats = DataStore.getDashboardStats();
+  const allAttendance = DataStore.getAllAttendance();
+  const swimLogs = DataStore.getSwimLogs();
+  const memories = DataStore.getMemories();
 
   return (
     <AnalyticsClient
       sessions={sessions}
       swimmers={swimmers}
       dashboardStats={stats}
+      allAttendance={allAttendance}
+      swimLogs={swimLogs}
+      memories={memories}
     />
   );
 }

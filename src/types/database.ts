@@ -277,4 +277,42 @@ export interface SquadExpense {
   session_title?: string | null;
 }
 
+export type RollCallStatus =
+  | "awake"
+  | "on_my_way"
+  | "need_ride"
+  | "offering_ride"
+  | "running_late";
+
+export interface SessionRollCall {
+  id: string;
+  session_id: string;
+  swimmer_id: string;
+  swimmer_name: string;
+  status: RollCallStatus;
+  note?: string | null;
+  updated_at: string;
+}
+
+export type SwimStroke = "freestyle" | "breaststroke" | "backstroke" | "butterfly" | "mixed";
+export type SwimFeeling = "beast" | "strong" | "steady" | "tired";
+
+export interface SwimLog {
+  id: string;
+  swimmer_id: string;
+  swimmer_name: string;
+  session_id?: string | null;
+  log_date: string; // YYYY-MM-DD
+  distance_meters: number;
+  laps?: number | null;
+  pool_length_meters: 25 | 50;
+  stroke: SwimStroke;
+  duration_minutes?: number | null;
+  best_50m_seconds?: number | null;
+  best_100m_seconds?: number | null;
+  feeling: SwimFeeling;
+  notes?: string | null;
+  created_at: string;
+}
+
 

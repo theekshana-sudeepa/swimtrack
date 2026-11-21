@@ -41,6 +41,8 @@ import {
   SquadMessage,
   SquadMemory,
   SquadExpense,
+  SessionRollCall,
+  SwimLog,
   PoolVenue,
 } from "@/types/database";
 import {
@@ -64,6 +66,9 @@ import { CheckInCelebrationModal } from "./checkin-celebration-modal";
 import { SquadMemoriesViewer } from "@/components/memories/squad-memories-viewer";
 import { ReactionBar } from "@/components/social/reaction-bar";
 import { SquadSplitsPanel } from "@/components/splits/squad-splits-panel";
+import { PreSwimRollCall } from "./pre-swim-rollcall";
+import { SwimLogPanel } from "./swim-log-panel";
+import { SquadWrappedModal } from "@/components/wrapped/squad-wrapped-modal";
 import { AttendanceRecord } from "@/types/database";
 import { toast } from "sonner";
 import { SwimTrackLogo } from "@/components/brand/logo";
@@ -86,6 +91,9 @@ interface SwimmerPortalClientProps {
   initialMessages: SquadMessage[];
   initialMemories?: SquadMemory[];
   initialExpenses?: SquadExpense[];
+  initialRollCalls?: SessionRollCall[];
+  initialSwimLogs?: SwimLog[];
+  allAttendance?: AttendanceRecord[];
   attendeesByDate?: Record<string, string[]>;
   sessions?: SwimSession[];
   squadFriends?: Swimmer[];
@@ -105,6 +113,9 @@ export function SwimmerPortalClient({
   initialMessages,
   initialMemories = [],
   initialExpenses = [],
+  initialRollCalls = [],
+  initialSwimLogs = [],
+  allAttendance = [],
   attendeesByDate = {},
   sessions = [],
   squadFriends = [],
@@ -342,8 +353,10 @@ export function SwimmerPortalClient({
     }
   }
 
-  // Squad Memories state (shared with Attendance History 📸 badges)
+  // Squad Memories & Tier 2 state (Swim Logs + Monthly Wrapped)
   const [memories, setMemories] = React.useState<SquadMemory[]>(initialMemories);
+  const [swimLogs, setSwimLogs] = React.useState<SwimLog[]>(initialSwimLogs);
+  const [showWrappedModal, setShowWrappedModal] = React.useState(false);
   const [memoryDateJump, setMemoryDateJump] = React.useState<{
     date: string;
     nonce: number;
@@ -351,6 +364,9 @@ export function SwimmerPortalClient({
   React.useEffect(() => {
     setMemories(initialMemories);
   }, [initialMemories]);
+  React.useEffect(() => {
+    setSwimLogs(initialSwimLogs);
+  }, [initialSwimLogs]);
   const memoriesByDate = React.useMemo(() => {
     const map = new Map<string, SquadMemory>();
     for (const m of memories) {
@@ -404,7 +420,17 @@ export function SwimmerPortalClient({
         </Link>
 
         <div className="flex items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-aqua/10 text-aqua font-bold border border-aqua/30 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setShowWrappedModal(true)}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-aqua/20 to-seafoam/20 hover:from-aqua/30 hover:to-seafoam/30 text-aqua font-extrabold border border-aqua/40 text-[11px] transition-all active:scale-95"
+            title="View Monthly Squad Wrapped Recap"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Wrapped</span>
+          </button>
+
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-aqua/10 text-aqua font-bold border border-aqua/30 text-[11px]">
             <Waves className="w-3.5 h-3.5 animate-pulse" />
             <span>Squad Pass</span>
           </span>
@@ -749,6 +775,14 @@ export function SwimmerPortalClient({
                   </button>
                 </div>
               )}
+
+              {/* Pre-Swim Live Roll-Call & Ride Coordination */}
+              <PreSwimRollCall
+                sessionId={nextSession.id}
+                swimmerId={swimmer.id}
+                swimmerToken={token}
+                initialRollCalls={initialRollCalls}
+              />
             </div>
           ) : (
             <div className="py-8 text-center text-xs text-muted-foreground space-y-1">
@@ -902,6 +936,15 @@ export function SwimmerPortalClient({
           attendeesByDate={attendeesByDate}
           currentSwimmer={swimmer}
           swimmerToken={token}
+        />
+
+        {/* Personal Swim Distance Challenge & PRs */}
+        <SwimLogPanel
+          initialLogs={swimLogs}
+          swimmerId={swimmer.id}
+          swimmerToken={token}
+          nextSession={nextSession}
+          onLogsChange={setSwimLogs}
         />
 
         {/* Squad Friends & Power Rankings Leaderboard */}
@@ -1456,6 +1499,18 @@ export function SwimmerPortalClient({
           </p>
         </div>
       </main>
+
+      {/* Monthly Squad Wrapped Modal */}
+      <SquadWrappedModal
+        isOpen={showWrappedModal}
+        onClose={() => setShowWrappedModal(false)}
+        swimmers={squadFriends}
+        sessions={sessions}
+        attendance={allAttendance}
+        swimLogs={swimLogs}
+        memories={memories}
+        currentSwimmerId={swimmer.id}
+      />
 
       {/* Animated Poolside Check-In Celebration Modal */}
       <CheckInCelebrationModal

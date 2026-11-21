@@ -85,6 +85,12 @@ export default async function SwimmerPortalPage({
     if (ids.length > 0) attendeesByDate[sess.date] = ids;
   }
 
+  const initialRollCalls = nextSession
+    ? DataStore.getRollCallsForSession(nextSession.id)
+    : [];
+  const initialSwimLogs = DataStore.getSwimLogs();
+  const allAttendance = DataStore.getAllAttendance();
+
   return (
     <SwimmerPortalClient
       swimmer={swimmer}
@@ -95,6 +101,9 @@ export default async function SwimmerPortalPage({
       initialMessages={messages}
       initialMemories={memories}
       initialExpenses={expenses}
+      initialRollCalls={initialRollCalls}
+      initialSwimLogs={initialSwimLogs}
+      allAttendance={allAttendance}
       attendeesByDate={attendeesByDate}
       sessions={allSessions}
       squadFriends={squadFriends}

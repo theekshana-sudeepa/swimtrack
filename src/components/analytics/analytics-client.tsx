@@ -30,12 +30,19 @@ import {
   PieChart,
   Pie,
 } from "recharts";
-import { Swimmer, SwimSession } from "@/types/database";
+import {
+  Swimmer,
+  SwimSession,
+  AttendanceRecord,
+  SwimLog,
+  SquadMemory,
+} from "@/types/database";
 import {
   ALL_SQUAD_ROLES,
   rankSquadLeaderboard,
   SQUAD_POINTS_RULES,
 } from "@/lib/squad-ranks";
+import { SquadWrappedModal } from "@/components/wrapped/squad-wrapped-modal";
 import { formatTime, cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -49,15 +56,22 @@ interface AnalyticsClientProps {
     overallAttendanceRate: number;
     sessionsThisMonth: number;
   };
+  allAttendance?: AttendanceRecord[];
+  swimLogs?: SwimLog[];
+  memories?: SquadMemory[];
 }
 
 export function AnalyticsClient({
   sessions,
   swimmers,
   dashboardStats,
+  allAttendance = [],
+  swimLogs = [],
+  memories = [],
 }: AnalyticsClientProps) {
   const [selectedSwimmerId, setSelectedSwimmerId] = React.useState<string>("all");
   const [showRankGuide, setShowRankGuide] = React.useState(false);
+  const [showWrappedModal, setShowWrappedModal] = React.useState(false);
 
   // Chart data: Attendance Trend by session
   const trendData = sessions
@@ -155,6 +169,15 @@ export function AnalyticsClient({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowWrappedModal(true)}
+            className="px-3.5 py-2 rounded-xl bg-aqua hover:bg-aqua-hover text-ocean-950 text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Squad Wrapped</span>
+          </button>
+
           <button
             type="button"
             onClick={handleExportAnalyticsCSV}
@@ -571,6 +594,17 @@ export function AnalyticsClient({
           </table>
         </div>
       </div>
+
+      {/* Monthly Squad Wrapped Modal */}
+      <SquadWrappedModal
+        isOpen={showWrappedModal}
+        onClose={() => setShowWrappedModal(false)}
+        swimmers={swimmers}
+        sessions={sessions}
+        attendance={allAttendance}
+        swimLogs={swimLogs}
+        memories={memories}
+      />
     </div>
   );
 }
