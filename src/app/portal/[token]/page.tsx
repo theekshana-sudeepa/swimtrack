@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { SWIMMER_COOKIE_NAME } from "@/lib/auth";
 import { timingSafeMatch } from "@/lib/security";
 import { DataStore } from "@/lib/data-store";
+import { getMemoriesWithSignedUrls } from "@/lib/memories-service";
 import { SwimmerPortalClient } from "@/components/portal/swimmer-portal-client";
 import { Waves, ArrowLeft, Search } from "lucide-react";
 import { SwimTrackLogo } from "@/components/brand/logo";
@@ -71,6 +72,8 @@ export default async function SwimmerPortalPage({
   const squadFriends = DataStore.getSwimmers({ status: "active" });
   const dashboardStats = DataStore.getDashboardStats();
   const savedVenues = DataStore.getSavedVenues();
+  const allSessions = DataStore.getSessions({ status: "all" });
+  const { memories } = await getMemoriesWithSignedUrls();
 
   return (
     <SwimmerPortalClient
@@ -80,6 +83,8 @@ export default async function SwimmerPortalPage({
       savedVenues={savedVenues}
       history={history}
       initialMessages={messages}
+      initialMemories={memories}
+      sessions={allSessions}
       squadFriends={squadFriends}
       squadStats={{
         overallRate: dashboardStats.overallAttendanceRate,

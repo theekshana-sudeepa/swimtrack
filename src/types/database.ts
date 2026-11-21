@@ -190,3 +190,39 @@ export interface SquadMessage {
   is_admin?: boolean;
 }
 
+export interface SquadMemoryPhoto {
+  id: string;
+  memory_id: string;
+  slot: 1 | 2 | 3;
+  storage_path: string;
+  mime_type: "image/webp" | "image/jpeg" | "image/png";
+  size_bytes: number;
+  width?: number | null;
+  height?: number | null;
+  caption?: string | null;
+  uploaded_by_name: string;
+  uploaded_by_swimmer_id?: string | null;
+  uploaded_by_role: "admin" | "swimmer";
+  created_at: string;
+  /** Ephemeral signed URL (or data URL in local demo mode) attached server-side for authorized viewers */
+  signed_url?: string | null;
+}
+
+export interface SquadMemory {
+  id: string;
+  memory_date: string; // YYYY-MM-DD (required)
+  session_id?: string | null;
+  title: string;
+  caption?: string | null;
+  location?: string | null;
+  created_by_name: string;
+  created_by_swimmer_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+  photos: SquadMemoryPhoto[];
+  // Optional hydrated session info
+  session_title?: string | null;
+  session_location?: string | null;
+}
+
+

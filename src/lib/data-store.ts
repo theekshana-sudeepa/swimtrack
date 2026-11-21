@@ -9,6 +9,8 @@ import {
   ReminderDelivery,
   AppSetting,
   SquadMessage,
+  SquadMemory,
+  SquadMemoryPhoto,
   PoolVenue,
 } from "@/types/database";
 import {
@@ -74,6 +76,7 @@ interface StoreState {
   auditLogs: AttendanceAuditLog[];
   reminders: ReminderDelivery[];
   messages: SquadMessage[];
+  memories: SquadMemory[];
   venues: PoolVenue[];
   settings: Record<string, AppSetting>;
 }
@@ -106,6 +109,7 @@ function getInitialStore(forceDemo = false): StoreState {
         is_admin: true,
       },
     ],
+    memories: [],
     venues: buildDefaultSeedVenues(),
     settings: {
       general: {
@@ -151,6 +155,7 @@ export const DataStore = {
     store.auditLogs = fresh.auditLogs;
     store.reminders = fresh.reminders;
     store.messages = fresh.messages;
+    store.memories = fresh.memories;
     store.venues = fresh.venues;
     store.settings = fresh.settings;
   },
@@ -163,6 +168,7 @@ export const DataStore = {
     store.auditLogs = [];
     store.reminders = [];
     store.messages = [];
+    store.memories = [];
   },
 
   // ---------------------------------------------------------------------------
@@ -1917,5 +1923,79 @@ export const DataStore = {
     if (!store.messages) store.messages = [];
     store.messages.unshift(newMsg);
     return newMsg;
+  },
+
+  // ---------------------------------------------------------------------------
+  // Squad Memories (End-of-Day Photo Vault, 1–3 photos per date)
+  // ---------------------------------------------------------------------------
+  hydrateMemories(memories: SquadMemory[]): void {
+    store.memories = memories
+      .map((m) => ({
+        ...m,
+        photos: [...(m.photos || [])].sort((a, b) => a.slot - b.slot),
+      }))
+      .sort((a, b) => b.memory_date.localeCompare(a.memory_date));
+  },
+
+  getMemories(): SquadMemory[] {
+    const sessionsById = new Map(store.sessions.map((s) => [s.id, s]));
+    const sessionsByDate = new Map(store.sessions.map((s) => [s.date, s]));
+    return (store.memories || [])
+      .slice()
+      .sort((a, b) => b.memory_date.localeCompare(a.memory_date))
+      .map((m) => {
+        const linked =
+          (m.session_id ? sessionsById.get(m.session_id) : null) ||
+          sessionsByDate.get(m.memory_date) ||
+          null;
+        return {
+          ...m,
+          session_id: m.session_id ?? linked?.id ?? null,
+          session_title: m.session_title ?? linked?.title ?? null,
+          session_location: m.session_location ?? linked?.location ?? null,
+          photos: [...(m.photos || [])].sort((a, b) => a.slot - b.slot),
+        };
+      });
+  },
+
+  getMemoryById(id: string): SquadMemory | null {
+    return this.getMemories().find((m) => m.id === id) || null;
+  },
+
+  getMemoryByDate(date: string): SquadMemory | null {
+    return this.getMemories().find((m) => m.memory_date === date) || null;
+  },
+
+  getMemoryPhotoById(photoId: string): { memory: SquadMemory; photo: SquadMemoryPhoto } | null {
+    for (const memory of this.getMemories()) {
+      const photo = memory.photos.find((p) => p.id === photoId);
+      if (photo) return { memory, photo };
+    }
+    return null;
+  },
+
+  upsertMemory(memory: SquadMemory): SquadMemory {
+    if (!store.memories) store.memories = [];
+    const normalized: SquadMemory = {
+      ...memory,
+      photos: [...(memory.photos || [])].sort((a, b) => a.slot - b.slot),
+    };
+    const idx = store.memories.findIndex(
+      (m) => m.id === normalized.id || m.memory_date === normalized.memory_date
+    );
+    if (idx === -1) {
+      store.memories.push(normalized);
+    } else {
+      store.memories[idx] = normalized;
+    }
+    store.memories.sort((a, b) => b.memory_date.localeCompare(a.memory_date));
+    return normalized;
+  },
+
+  deleteMemory(id: string): boolean {
+    if (!store.memories) return false;
+    const before = store.memories.length;
+    store.memories = store.memories.filter((m) => m.id !== id);
+    return store.memories.length < before;
   },
 };

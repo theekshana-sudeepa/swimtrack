@@ -144,3 +144,10 @@ export const excuseRateLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 6,
   lockoutMs: 10 * 60 * 1000,
 });
+
+// Squad memory photo uploads: Max 12 per 10 minutes per swimmer
+export const memoryUploadRateLimiter = new SlidingWindowRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  maxAttempts: 12,
+  lockoutMs: 10 * 60 * 1000,
+});

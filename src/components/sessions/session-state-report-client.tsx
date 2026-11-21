@@ -27,8 +27,11 @@ import {
   Sparkles,
   Trash2,
   X,
+  Camera,
+  Plus,
 } from "lucide-react";
-import { AttendanceRecord, Swimmer, SwimSession, PoolVenue } from "@/types/database";
+import { AttendanceRecord, Swimmer, SwimSession, PoolVenue, SquadMemory } from "@/types/database";
+import { MemoryUploadModal } from "@/components/memories/memory-upload-modal";
 import dynamic from "next/dynamic";
 import {
   finalizeSessionAction,
@@ -52,6 +55,7 @@ interface SessionStateReportClientProps {
   swimmers: Swimmer[];
   eligibleRemindersCount: number;
   savedVenues?: PoolVenue[];
+  initialSessionMemory?: SquadMemory | null;
 }
 
 export function SessionStateReportClient({
@@ -60,11 +64,18 @@ export function SessionStateReportClient({
   swimmers,
   eligibleRemindersCount,
   savedVenues = [],
+  initialSessionMemory = null,
 }: SessionStateReportClientProps) {
   const router = useRouter();
   const [session, setSession] = React.useState<SwimSession>(initialSession);
   const [venues, setVenues] = React.useState<PoolVenue[]>(savedVenues);
+  const [sessionMemory, setSessionMemory] = React.useState<SquadMemory | null>(initialSessionMemory);
+  const [showMemoryUpload, setShowMemoryUpload] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<"report" | "roster">("report");
+
+  React.useEffect(() => {
+    setSessionMemory(initialSessionMemory);
+  }, [initialSessionMemory]);
 
   React.useEffect(() => {
     setVenues(savedVenues);
@@ -295,6 +306,17 @@ export function SessionStateReportClient({
               <Mail className="w-4 h-4 text-aqua" />
               <span>Reminders ({eligibleRemindersCount})</span>
             </Link>
+
+            <button
+              type="button"
+              onClick={() => setShowMemoryUpload(true)}
+              className="px-3.5 py-2.5 rounded-xl border border-aqua/35 bg-aqua/10 hover:bg-aqua/20 text-aqua font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95"
+            >
+              <Camera className="w-4 h-4" />
+              <span>
+                Day Photos ({sessionMemory?.photos.length || 0}/3)
+              </span>
+            </button>
 
             <button
               type="button"
@@ -978,6 +1000,77 @@ export function SessionStateReportClient({
           </div>
         </div>
       )}
+
+      {/* Session End-of-Day Squad Photos Preview Strip */}
+      {sessionMemory && sessionMemory.photos.length > 0 && (
+        <div className="p-4 sm:p-5 rounded-3xl border border-aqua/30 bg-card shadow-sm space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Camera className="w-4 h-4 text-aqua" />
+              <h2 className="text-sm font-extrabold text-foreground">
+                End-of-Day Squad Photos ({sessionMemory.photos.length}/3)
+              </h2>
+              <span className="text-[11px] font-mono text-muted-foreground">
+                {sessionMemory.memory_date}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {sessionMemory.photos.length < 3 && (
+                <button
+                  type="button"
+                  onClick={() => setShowMemoryUpload(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-aqua/15 hover:bg-aqua/25 border border-aqua/30 text-aqua text-[11px] font-bold"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Add Photo</span>
+                </button>
+              )}
+              <Link
+                href="/memories"
+                className="text-[11px] font-semibold text-muted-foreground hover:text-aqua transition-colors"
+              >
+                Open Vault &rarr;
+              </Link>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            {sessionMemory.photos.map((photo) => (
+              <div
+                key={photo.id}
+                className="relative aspect-[4/3] rounded-2xl overflow-hidden border border-border bg-ocean-950"
+              >
+                {photo.signed_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={photo.signed_url}
+                    alt={photo.caption || sessionMemory.title}
+                    className="w-full h-full object-cover"
+                  />
+                )}
+                <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-full bg-black/70 text-[10px] text-white/90 font-semibold">
+                  {photo.uploaded_by_name}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Session End-of-Day Photo Upload Modal */}
+      <MemoryUploadModal
+        isOpen={showMemoryUpload}
+        onClose={() => setShowMemoryUpload(false)}
+        existingMemories={sessionMemory ? [sessionMemory] : []}
+        sessions={[session]}
+        defaultDate={session.date}
+        defaultSessionId={session.id}
+        defaultTitle={`${session.title} Memories`}
+        defaultLocation={session.location}
+        onUploaded={(mem) => {
+          setSessionMemory(mem);
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

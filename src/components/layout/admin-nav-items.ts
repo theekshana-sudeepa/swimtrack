@@ -7,6 +7,7 @@ import {
   BarChart3,
   CalendarDays,
   Settings,
+  Camera,
 } from "lucide-react";
 
 export interface NavItem {
@@ -48,6 +49,12 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
     href: "/calendar",
     icon: CalendarDays,
     description: "Monthly & weekly agenda",
+  },
+  {
+    title: "Memories",
+    href: "/memories",
+    icon: Camera,
+    description: "End-of-day squad photos",
   },
   {
     title: "Reminders",

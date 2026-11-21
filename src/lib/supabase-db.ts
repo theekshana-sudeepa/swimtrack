@@ -14,6 +14,8 @@ import {
   AppSetting,
   SessionSeries,
   PoolVenue,
+  SquadMemory,
+  SquadMemoryPhoto,
 } from "@/types/database";
 
 /** Maps a swim_sessions row to the app model (shared by full sync and targeted refresh). */
@@ -196,6 +198,7 @@ export const SupabaseDB = {
         remindersRes,
         seriesRes,
         venuesRes,
+        memoriesRes,
       ] = await Promise.all([
         supabase
           .from("swimmers")
@@ -222,6 +225,12 @@ export const SupabaseDB = {
             .select("*")
             .order("is_default", { ascending: false })
             .order("created_at", { ascending: true })
+        ).catch(() => ({ data: null, error: null })),
+        Promise.resolve(
+          supabase
+            .from("squad_memories")
+            .select("*, squad_memory_photos(*)")
+            .order("memory_date", { ascending: false })
         ).catch(() => ({ data: null, error: null })),
       ]);
 
@@ -331,6 +340,51 @@ export const SupabaseDB = {
       // 6. Session Series
       if (seriesRes.data && seriesRes.data.length > 0) {
         DataStore.hydrateSeries(seriesRes.data as SessionSeries[]);
+      }
+
+      // 7. Squad Memories (fault-tolerant if migration hasn't been applied yet)
+      if (!memoriesRes.error && Array.isArray(memoriesRes.data)) {
+        const mappedMemories: SquadMemory[] = memoriesRes.data.map(
+          (row: Record<string, unknown>) => {
+            const rawPhotos = Array.isArray(row.squad_memory_photos)
+              ? (row.squad_memory_photos as Record<string, unknown>[])
+              : [];
+            const photos: SquadMemoryPhoto[] = rawPhotos
+              .map((p) => ({
+                id: p.id as string,
+                memory_id: p.memory_id as string,
+                slot: Math.min(3, Math.max(1, Number(p.slot) || 1)) as 1 | 2 | 3,
+                storage_path: p.storage_path as string,
+                mime_type:
+                  (p.mime_type as "image/webp" | "image/jpeg" | "image/png") || "image/webp",
+                size_bytes: Number(p.size_bytes) || 0,
+                width: p.width != null ? Number(p.width) : null,
+                height: p.height != null ? Number(p.height) : null,
+                caption: (p.caption as string) || null,
+                uploaded_by_name: (p.uploaded_by_name as string) || "Squad Coach",
+                uploaded_by_swimmer_id: (p.uploaded_by_swimmer_id as string) || null,
+                uploaded_by_role:
+                  p.uploaded_by_role === "swimmer" ? ("swimmer" as const) : ("admin" as const),
+                created_at: (p.created_at as string) || new Date().toISOString(),
+              }))
+              .sort((a, b) => a.slot - b.slot);
+
+            return {
+              id: row.id as string,
+              memory_date: row.memory_date as string,
+              session_id: (row.session_id as string) || null,
+              title: (row.title as string) || "End-of-Day Squad Memory",
+              caption: (row.caption as string) || null,
+              location: (row.location as string) || null,
+              created_by_name: (row.created_by_name as string) || "Squad Coach",
+              created_by_swimmer_id: (row.created_by_swimmer_id as string) || null,
+              created_at: (row.created_at as string) || new Date().toISOString(),
+              updated_at: (row.updated_at as string) || undefined,
+              photos,
+            };
+          }
+        );
+        DataStore.hydrateMemories(mappedMemories);
       }
 
       return true;

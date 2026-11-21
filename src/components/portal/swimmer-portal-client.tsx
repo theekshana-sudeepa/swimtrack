@@ -31,9 +31,10 @@ import {
   TrendingDown,
   Target,
   Crown,
+  Camera,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { Swimmer, SwimSession, SquadMessage, PoolVenue } from "@/types/database";
+import { Swimmer, SwimSession, SquadMessage, SquadMemory, PoolVenue } from "@/types/database";
 import {
   getSwimmerSquadRank,
   calculateSwimmerPoints,
@@ -51,6 +52,7 @@ import {
 } from "@/actions/portal-actions";
 import { PoolRadarCheckin } from "./pool-radar-checkin";
 import { CheckInCelebrationModal } from "./checkin-celebration-modal";
+import { SquadMemoriesViewer } from "@/components/memories/squad-memories-viewer";
 import { AttendanceRecord } from "@/types/database";
 import { toast } from "sonner";
 import { SwimTrackLogo } from "@/components/brand/logo";
@@ -71,6 +73,8 @@ interface SwimmerPortalClientProps {
   savedVenues?: PoolVenue[];
   history: HistoryRecord[];
   initialMessages: SquadMessage[];
+  initialMemories?: SquadMemory[];
+  sessions?: SwimSession[];
   squadFriends?: Swimmer[];
   squadStats?: {
     overallRate: number;
@@ -86,6 +90,8 @@ export function SwimmerPortalClient({
   savedVenues = [],
   history,
   initialMessages,
+  initialMemories = [],
+  sessions = [],
   squadFriends = [],
   squadStats,
 }: SwimmerPortalClientProps) {
@@ -320,6 +326,23 @@ export function SwimmerPortalClient({
       setIsSubmittingExcuse(false);
     }
   }
+
+  // Squad Memories state (shared with Attendance History 📸 badges)
+  const [memories, setMemories] = React.useState<SquadMemory[]>(initialMemories);
+  const [memoryDateJump, setMemoryDateJump] = React.useState<{
+    date: string;
+    nonce: number;
+  } | null>(null);
+  React.useEffect(() => {
+    setMemories(initialMemories);
+  }, [initialMemories]);
+  const memoriesByDate = React.useMemo(() => {
+    const map = new Map<string, SquadMemory>();
+    for (const m of memories) {
+      map.set(m.memory_date, m);
+    }
+    return map;
+  }, [memories]);
 
   // Chalkboard Messages State
   const [messages, setMessages] = React.useState<SquadMessage[]>(initialMessages);
@@ -742,6 +765,16 @@ export function SwimmerPortalClient({
             }}
           />
         )}
+
+        {/* End-of-Day Squad Memories Photo Vault (1–3 photos per date) */}
+        <SquadMemoriesViewer
+          initialMemories={memories}
+          sessions={sessions}
+          swimmerToken={token}
+          currentSwimmerId={swimmer.id}
+          openDateRequest={memoryDateJump}
+          onMemoriesChange={setMemories}
+        />
 
         {/* Squad Chalkboard / Chat Wall */}
         <div className="p-6 rounded-3xl border border-border bg-card shadow-sm space-y-4">
@@ -1266,9 +1299,24 @@ export function SwimmerPortalClient({
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-muted-foreground">
-                        {session?.date} &bull; {session?.location}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                        <span>
+                          {session?.date} &bull; {session?.location}
+                        </span>
+                        {session?.date && memoriesByDate.get(session.date) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMemoryDateJump({ date: session.date, nonce: Date.now() })
+                            }
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-aqua/15 hover:bg-aqua/25 border border-aqua/35 text-aqua text-[10px] font-bold transition-colors"
+                            title="View squad photos from this day"
+                          >
+                            <Camera className="w-2.5 h-2.5" />
+                            <span>{memoriesByDate.get(session.date)!.photos.length}</span>
+                          </button>
+                        )}
+                      </div>
 
                       {/* Per-Session Gain/Loss Micro-Chips */}
                       <div className="flex flex-wrap items-center gap-1 pt-0.5">
