@@ -392,6 +392,7 @@ export async function selfCheckInWithGeofenceAction(
     }
 
     const policy = DataStore.getAttendancePolicy();
+    const savedVenues = DataStore.getSavedVenues();
     const positionAgeMs = Number(coords?.positionAgeMs);
     const validation = validateGeofenceCheckin({
       userLat: Number(coords?.latitude),
@@ -400,6 +401,7 @@ export async function selfCheckInWithGeofenceAction(
       clientTimestamp: Number.isFinite(positionAgeMs) ? Date.now() - Math.max(0, positionAgeMs) : NaN,
       session,
       lateThresholdMinutes: policy.lateThresholdMinutes,
+      customVenues: savedVenues,
     });
 
     if (!validation.isValid) {

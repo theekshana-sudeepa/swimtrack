@@ -420,5 +420,76 @@ describe("DataStore In-Memory Repository", () => {
       DataStore.deleteSession(session.id);
     });
   });
+
+  describe("Saved Swimming Places (Custom Pool Venues)", () => {
+    it("creates, updates, sets default, and deletes custom swimming places with single-default invariant", () => {
+      const initialCount = DataStore.getSavedVenues().length;
+      expect(initialCount).toBeGreaterThanOrEqual(1);
+
+      const created = DataStore.createVenue({
+        name: "Galle Maritime Aquatic Complex, Galle",
+        short_name: "Galle Pool",
+        latitude: 6.0535,
+        longitude: 80.221,
+        radius_meters: 120,
+        is_default: true,
+        notes: "Enter from east gate",
+      });
+
+      expect(created.is_default).toBe(true);
+      expect(created.radius_meters).toBe(120);
+      expect(DataStore.getDefaultVenue().id).toBe(created.id);
+      expect(DataStore.getSavedVenues().filter((v) => v.is_default)).toHaveLength(1);
+
+      // General settings default_pool stays synchronized
+      const general = DataStore.getAppSettings()["general"]?.value as Record<string, unknown>;
+      expect(general.default_pool).toBe("Galle Maritime Aquatic Complex, Galle");
+      expect(general.default_pool_radius).toBe(120);
+
+      // Creating a session using this saved venue resolves its exact coordinates & radius
+      const sess = DataStore.createSession({
+        title: "Southern Squad Meet",
+        date: "2099-12-15",
+        start_time: "07:00:00",
+        end_time: "08:30:00",
+        location: "Galle Maritime Aquatic Complex, Galle",
+        venue_id: created.id,
+      });
+      expect(sess.latitude).toBeCloseTo(6.0535, 4);
+      expect(sess.longitude).toBeCloseTo(80.221, 4);
+      expect(sess.geofence_radius).toBe(120);
+      expect(sess.venue_id).toBe(created.id);
+
+      // Updating radius clamps into valid 25-250m bounds
+      const updated = DataStore.updateVenue(created.id, { radius_meters: 999 });
+      expect(updated?.radius_meters).toBe(250);
+
+      // Deleting the default venue cleanly promotes another venue to default
+      const del = DataStore.deleteVenue(created.id);
+      expect(del.deleted).toBe(true);
+      expect(DataStore.getSavedVenues().filter((v) => v.is_default)).toHaveLength(1);
+
+      DataStore.deleteSession(sess.id);
+    });
+
+    it("prevents deleting the last remaining swimming place", () => {
+      DataStore.hydrateVenues([
+        {
+          id: "11111111-1111-4111-8111-000000000099",
+          name: "Solo Home Pool",
+          short_name: "Home Pool",
+          latitude: 6.91,
+          longitude: 79.86,
+          radius_meters: 75,
+          is_default: true,
+        },
+      ]);
+
+      const res = DataStore.deleteVenue("11111111-1111-4111-8111-000000000099");
+      expect(res.deleted).toBe(false);
+      expect(res.error).toContain("at least one");
+      expect(DataStore.getSavedVenues()).toHaveLength(1);
+    });
+  });
 });
 

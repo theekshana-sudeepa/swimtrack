@@ -1,6 +1,9 @@
-import { SwimSession, AttendanceStatus } from "@/types/database";
+import { SwimSession, AttendanceStatus, PoolVenue } from "@/types/database";
 import { getCurrentColomboTime, parseTimeToMinutes, formatLateNote } from "./attendance-calculator";
 
+/** Minimum & maximum allowable geofence radius (matches DB CHECK constraint). */
+export const MIN_GEOFENCE_RADIUS_METERS = 25;
+export const MAX_GEOFENCE_RADIUS_METERS = 250;
 /** Default geofence radius. Phone GPS beside a pool is typically +/-10-30 m, so 30 m was unusable. */
 export const DEFAULT_GEOFENCE_RADIUS_METERS = 75;
 /** Readings coarser than this (cell tower / wifi estimates) are rejected. */
@@ -9,6 +12,70 @@ export const MAX_GPS_ACCURACY_METERS = 50;
 export const MAX_POSITION_AGE_MS = 90_000;
 /** Default minutes after start before a GPS check-in counts as "late" (coach-configurable). */
 export const DEFAULT_LATE_THRESHOLD_MINUTES = 10;
+
+export function clampGeofenceRadiusMeters(
+  raw: number | string | null | undefined,
+  fallback = DEFAULT_GEOFENCE_RADIUS_METERS
+): number {
+  const parsed = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(MAX_GEOFENCE_RADIUS_METERS, Math.max(MIN_GEOFENCE_RADIUS_METERS, Math.round(parsed)));
+}
+
+export function deriveShortVenueName(fullName: string): string {
+  const clean = fullName.trim();
+  if (!clean) return "Swimming Pool";
+  const firstSegment = clean.split(",")[0]?.trim() || clean;
+  return firstSegment.length > 36 ? `${firstSegment.slice(0, 35).trim()}…` : firstSegment;
+}
+
+/**
+ * Parses raw coordinates pasted from Google Maps or GPS tools:
+ * - "6.9056, 79.8614" or "6.9056 79.8614"
+ * - Google Maps URLs like ".../@6.905612,79.861401,17z" or "...?q=6.9056,79.8614" or "!3d6.9056!4d79.8614"
+ */
+export function parseCoordinatesInput(
+  raw: string
+): { latitude: number; longitude: number } | null {
+  const input = (raw || "").trim();
+  if (!input) return null;
+
+  // 1. Direct "lat, lng" pair (e.g. copied from Google Maps right-click)
+  const directMatch = input.match(
+    /^(-?\d{1,2}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)$/
+  );
+  if (directMatch) {
+    const lat = parseFloat(directMatch[1]);
+    const lng = parseFloat(directMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { latitude: Number(lat.toFixed(6)), longitude: Number(lng.toFixed(6)) };
+    }
+  }
+
+  // 2. Google Maps "!3dLAT!4dLNG" exact pin marker inside URL
+  const bangMatch = input.match(/!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/);
+  if (bangMatch) {
+    const lat = parseFloat(bangMatch[1]);
+    const lng = parseFloat(bangMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { latitude: Number(lat.toFixed(6)), longitude: Number(lng.toFixed(6)) };
+    }
+  }
+
+  // 3. Google Maps "@lat,lng" or "?q=lat,lng" / "ll=lat,lng"
+  const urlMatch = input.match(
+    /(?:@|[?&](?:q|ll|destination)=)(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/
+  );
+  if (urlMatch) {
+    const lat = parseFloat(urlMatch[1]);
+    const lng = parseFloat(urlMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { latitude: Number(lat.toFixed(6)), longitude: Number(lng.toFixed(6)) };
+    }
+  }
+
+  return null;
+}
 
 export interface VenueLocation {
   name: string;
@@ -20,6 +87,41 @@ export interface VenueLocation {
 export interface PresetVenue extends VenueLocation {
   key: string;
   shortName: string;
+}
+
+export type VenueCandidate =
+  | PresetVenue
+  | PoolVenue
+  | (VenueLocation & { id?: string; shortName?: string; short_name?: string });
+
+export function normalizeVenueCandidate(v: VenueCandidate): {
+  id?: string;
+  name: string;
+  shortName: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+} {
+  const radius =
+    "radius_meters" in v
+      ? v.radius_meters
+      : "radiusMeters" in v
+      ? v.radiusMeters
+      : DEFAULT_GEOFENCE_RADIUS_METERS;
+  const shortName =
+    "short_name" in v && v.short_name
+      ? v.short_name
+      : "shortName" in v && v.shortName
+      ? v.shortName
+      : deriveShortVenueName(v.name);
+  return {
+    id: "id" in v ? v.id : undefined,
+    name: v.name,
+    shortName,
+    latitude: v.latitude,
+    longitude: v.longitude,
+    radiusMeters: clampGeofenceRadiusMeters(radius),
+  };
 }
 
 const FALLBACK_PRESET_VENUES: PresetVenue[] = [
@@ -105,19 +207,43 @@ export const KNOWN_VENUES: Record<string, VenueLocation> = Object.fromEntries(
 );
 
 /**
- * Matches a location name string against known squad swimming venues.
+ * Matches a location name string against coach-saved swimming places first,
+ * then falls back to known squad preset venues.
  */
-export function matchKnownVenueByName(locationName?: string | null): VenueLocation | null {
+export function matchKnownVenueByName(
+  locationName?: string | null,
+  customVenues?: VenueCandidate[]
+): VenueLocation | null {
   const loc = (locationName || "").toLowerCase().trim();
   if (!loc) return null;
-  for (const venue of PRESET_VENUES) {
-    const venueLower = venue.name.toLowerCase();
-    const shortLower = venue.shortName.toLowerCase();
+
+  const normalizedCustom = (customVenues || []).map(normalizeVenueCandidate);
+  const normalizedPresets = PRESET_VENUES.map(normalizeVenueCandidate);
+  const poolList = [...normalizedCustom, ...normalizedPresets];
+
+  // Pass 1: exact name or shortName match
+  for (const venue of poolList) {
+    const venueLower = venue.name.toLowerCase().trim();
+    const shortLower = venue.shortName.toLowerCase().trim();
+    if (loc === venueLower || (shortLower.length >= 3 && loc === shortLower)) {
+      return {
+        name: venue.name,
+        latitude: venue.latitude,
+        longitude: venue.longitude,
+        radiusMeters: venue.radiusMeters,
+      };
+    }
+  }
+
+  // Pass 2: fuzzy substring / primary-token match
+  for (const venue of poolList) {
+    const venueLower = venue.name.toLowerCase().trim();
+    const shortLower = venue.shortName.toLowerCase().trim();
     const primaryToken = venueLower.split(/[\s,]+/)[0] || "";
     if (
       loc.includes(venueLower) ||
       venueLower.includes(loc) ||
-      loc.includes(shortLower) ||
+      (shortLower.length >= 4 && loc.includes(shortLower)) ||
       (primaryToken.length >= 4 && loc.includes(primaryToken))
     ) {
       return {
@@ -133,28 +259,65 @@ export function matchKnownVenueByName(locationName?: string | null): VenueLocati
 
 /**
  * STRICT venue resolver: returns null when the session has no explicit coordinates and its
- * location text matches no known venue. Used for anything security-relevant (check-in) so a
- * swimmer can never be verified against the wrong pool.
+ * venue_id / location text matches no saved or known venue. Used for anything security-relevant
+ * (check-in) so a swimmer can never be verified against the wrong pool.
  */
-export function resolveSessionVenue(session: SwimSession): VenueLocation | null {
+export function resolveSessionVenue(
+  session: SwimSession,
+  customVenues?: VenueCandidate[]
+): VenueLocation | null {
   if (session.latitude != null && session.longitude != null) {
     return {
       name: session.location,
       latitude: session.latitude,
       longitude: session.longitude,
-      radiusMeters: session.geofence_radius || DEFAULT_GEOFENCE_RADIUS_METERS,
+      radiusMeters: clampGeofenceRadiusMeters(
+        session.geofence_radius,
+        DEFAULT_GEOFENCE_RADIUS_METERS
+      ),
     };
   }
 
-  return matchKnownVenueByName(session.location);
+  if (session.venue_id && customVenues && customVenues.length > 0) {
+    const byId = customVenues
+      .map(normalizeVenueCandidate)
+      .find((v) => v.id === session.venue_id);
+    if (byId) {
+      return {
+        name: session.location || byId.name,
+        latitude: byId.latitude,
+        longitude: byId.longitude,
+        radiusMeters:
+          session.geofence_radius != null
+            ? clampGeofenceRadiusMeters(session.geofence_radius, byId.radiusMeters)
+            : byId.radiusMeters,
+      };
+    }
+  }
+
+  return matchKnownVenueByName(session.location, customVenues);
 }
 
 /**
  * Display-only helper (map preview, radar UI). Falls back to the default pool when the venue is
  * unknown. NEVER use this for validating a check-in - use resolveSessionVenue().
  */
-export function getSessionVenueCoordinates(session: SwimSession): VenueLocation {
-  return resolveSessionVenue(session) ?? DEFAULT_VENUE;
+export function getSessionVenueCoordinates(
+  session: SwimSession,
+  customVenues?: VenueCandidate[]
+): VenueLocation {
+  const resolved = resolveSessionVenue(session, customVenues);
+  if (resolved) return resolved;
+  if (customVenues && customVenues.length > 0) {
+    const first = normalizeVenueCandidate(customVenues[0]);
+    return {
+      name: first.name,
+      latitude: first.latitude,
+      longitude: first.longitude,
+      radiusMeters: first.radiusMeters,
+    };
+  }
+  return DEFAULT_VENUE;
 }
 
 /**
@@ -213,12 +376,21 @@ export function validateGeofenceCheckin(params: {
   session: SwimSession;
   bypassTimeWindowForDev?: boolean;
   lateThresholdMinutes?: number;
+  customVenues?: VenueCandidate[];
 }): GeofenceValidationResult {
-  const { userLat, userLng, accuracy, clientTimestamp, session, bypassTimeWindowForDev } = params;
+  const {
+    userLat,
+    userLng,
+    accuracy,
+    clientTimestamp,
+    session,
+    bypassTimeWindowForDev,
+    customVenues,
+  } = params;
   const lateThreshold = Number.isFinite(params.lateThresholdMinutes)
     ? Math.max(0, params.lateThresholdMinutes as number)
     : DEFAULT_LATE_THRESHOLD_MINUTES;
-  const venue = resolveSessionVenue(session);
+  const venue = resolveSessionVenue(session, customVenues);
 
   if (!venue) {
     return {

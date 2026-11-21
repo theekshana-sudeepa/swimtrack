@@ -5,6 +5,7 @@ import {
   getSessionVenueCoordinates,
   validateGeofenceCheckin,
   DEFAULT_GEOFENCE_RADIUS_METERS,
+  parseCoordinatesInput,
 } from "./geo-fence";
 import { SwimSession } from "@/types/database";
 import { parseLateInfo } from "./attendance-calculator";
@@ -277,5 +278,78 @@ describe("Geofence Calculations & Anti-Cheat Rules", () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.minutesLate).toBe(res.minutesLate);
     expect(parsed?.reason).toContain("GPS check-in");
+  });
+
+  it("resolves and validates check-in against coach-saved custom swimming places", () => {
+    const customVenues = [
+      {
+        id: "venue-kandy-1",
+        name: "Kandy Trinity Aquatic Center, Kandy",
+        short_name: "Trinity Pool",
+        latitude: 7.2955,
+        longitude: 80.635,
+        radius_meters: 90,
+        is_default: true,
+      },
+    ];
+
+    const customSession: SwimSession = {
+      id: "sess-custom",
+      venue_id: "venue-kandy-1",
+      title: "Kandy Weekend Practice",
+      date: "2026-11-08",
+      start_time: "07:00:00",
+      end_time: "08:30:00",
+      location: "Kandy Trinity Aquatic Center, Kandy",
+      status: "scheduled",
+      is_finalized: false,
+    };
+
+    // Inside custom venue radius (~15m away)
+    const inside = validateGeofenceCheckin({
+      userLat: 7.2956,
+      userLng: 80.6351,
+      accuracy: 12,
+      clientTimestamp: Date.now(),
+      session: customSession,
+      bypassTimeWindowForDev: true,
+      customVenues,
+    });
+    expect(inside.isValid).toBe(true);
+    expect(inside.radiusMeters).toBe(90);
+
+    // Outside custom venue radius (~180m away)
+    const outside = validateGeofenceCheckin({
+      userLat: 7.2971,
+      userLng: 80.635,
+      accuracy: 10,
+      clientTimestamp: Date.now(),
+      session: customSession,
+      bypassTimeWindowForDev: true,
+      customVenues,
+    });
+    expect(outside.isValid).toBe(false);
+    expect(outside.error).toContain("within 90m");
+  });
+
+  it("parses direct lat/lng pairs and Google Maps URLs into exact coordinates", () => {
+    expect(parseCoordinatesInput("6.905612, 79.861401")).toEqual({
+      latitude: 6.905612,
+      longitude: 79.861401,
+    });
+    expect(
+      parseCoordinatesInput(
+        "https://www.google.com/maps/place/Pool/@7.0917123,79.9996123,17z/data=!3m1!4b1!4m6!3m5!1s0x0!8m2!3d7.0918!4d79.9997"
+      )
+    ).toEqual({
+      latitude: 7.0918,
+      longitude: 79.9997,
+    });
+    expect(parseCoordinatesInput("https://maps.google.com/?q=6.0535,80.2210")).toEqual({
+      latitude: 6.0535,
+      longitude: 80.221,
+    });
+    expect(parseCoordinatesInput("999, 999")).toBeNull();
+    expect(parseCoordinatesInput("Royal College Pool")).toBeNull();
   });
 });

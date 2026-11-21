@@ -44,10 +44,27 @@ export interface ReminderPreference {
   updated_at?: string;
 }
 
+export interface PoolVenue {
+  id: string;
+  name: string;
+  short_name: string;
+  latitude: number;
+  longitude: number;
+  radius_meters: number;
+  is_default: boolean;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface SessionSeries {
   id: string;
   title: string;
   location: string;
+  venue_id?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofence_radius?: number | null;
   recurrence_rule: "weekly" | "biweekly";
   day_of_week: number; // 0 = Sunday, 6 = Saturday
   start_time: string; // HH:mm:ss
@@ -62,6 +79,7 @@ export interface SessionSeries {
 export interface SwimSession {
   id: string;
   series_id?: string | null;
+  venue_id?: string | null;
   title: string;
   date: string; // YYYY-MM-DD
   start_time: string; // HH:mm:ss

@@ -1,6 +1,10 @@
 import { getSupabaseAdminClient } from "./supabase-client";
 import { DataStore } from "./data-store";
-import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "./geo-fence";
+import {
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  clampGeofenceRadiusMeters,
+  matchKnownVenueByName,
+} from "./geo-fence";
 import {
   Swimmer,
   SwimSession,
@@ -9,6 +13,7 @@ import {
   ReminderDelivery,
   AppSetting,
   SessionSeries,
+  PoolVenue,
 } from "@/types/database";
 
 /** Maps a swim_sessions row to the app model (shared by full sync and targeted refresh). */
@@ -16,7 +21,17 @@ function mapSessionRow(row: Record<string, unknown>): SwimSession {
   const id = row.id as string;
   const location = row.location as string;
   const override = DataStore.getSessionGeofenceOverride(id);
-  const matchedVenue = matchKnownVenueByName(location);
+  const savedVenues = DataStore.getSavedVenues();
+  const venueId = (row.venue_id as string) || override?.venue_id || null;
+  const matchedById = venueId ? savedVenues.find((v) => v.id === venueId) || null : null;
+  const matchedVenue = matchedById
+    ? {
+        name: matchedById.name,
+        latitude: matchedById.latitude,
+        longitude: matchedById.longitude,
+        radiusMeters: matchedById.radius_meters,
+      }
+    : matchKnownVenueByName(location, savedVenues);
 
   const latitude =
     row.latitude != null
@@ -38,9 +53,9 @@ function mapSessionRow(row: Record<string, unknown>): SwimSession {
 
   const geofence_radius =
     row.geofence_radius != null
-      ? Number(row.geofence_radius)
+      ? clampGeofenceRadiusMeters(Number(row.geofence_radius))
       : override?.geofence_radius != null
-      ? Number(override.geofence_radius)
+      ? clampGeofenceRadiusMeters(Number(override.geofence_radius))
       : matchedVenue
       ? matchedVenue.radiusMeters
       : DEFAULT_GEOFENCE_RADIUS_METERS;
@@ -48,6 +63,7 @@ function mapSessionRow(row: Record<string, unknown>): SwimSession {
   return {
     id,
     series_id: (row.series_id as string) || null,
+    venue_id: venueId,
     title: row.title as string,
     date: row.date as string,
     start_time: row.start_time as string,
@@ -172,28 +188,42 @@ export const SupabaseDB = {
     if (!supabase) return false;
 
     try {
-      const [swimmersRes, sessionsRes, attendanceRes, settingsRes, remindersRes, seriesRes] =
-        await Promise.all([
+      const [
+        swimmersRes,
+        sessionsRes,
+        attendanceRes,
+        settingsRes,
+        remindersRes,
+        seriesRes,
+        venuesRes,
+      ] = await Promise.all([
+        supabase
+          .from("swimmers")
+          .select("*, reminder_preferences(*)")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("swim_sessions")
+          .select("*")
+          .order("date", { ascending: false }),
+        supabase.from("attendance").select("*"),
+        supabase.from("app_settings").select("*"),
+        supabase
+          .from("reminder_deliveries")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(50),
+        supabase
+          .from("session_series")
+          .select("*")
+          .order("created_at", { ascending: false }),
+        Promise.resolve(
           supabase
-            .from("swimmers")
-            .select("*, reminder_preferences(*)")
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("swim_sessions")
+            .from("pool_venues")
             .select("*")
-            .order("date", { ascending: false }),
-          supabase.from("attendance").select("*"),
-          supabase.from("app_settings").select("*"),
-          supabase
-            .from("reminder_deliveries")
-            .select("*")
-            .order("created_at", { ascending: false })
-            .limit(50),
-          supabase
-            .from("session_series")
-            .select("*")
-            .order("created_at", { ascending: false }),
-        ]);
+            .order("is_default", { ascending: false })
+            .order("created_at", { ascending: true })
+        ).catch(() => ({ data: null, error: null })),
+      ]);
 
       // 1. Swimmers
       if (swimmersRes.data && swimmersRes.data.length > 0) {
@@ -230,13 +260,54 @@ export const SupabaseDB = {
         DataStore.hydrateSwimmers(mappedSwimmers);
       }
 
-      // 2. App Settings (hydrate before sessions so session_geofences overrides are available)
+      // 2. App Settings (hydrate before venues & sessions so session_geofences & saved_venues are available)
       if (settingsRes.data && settingsRes.data.length > 0) {
         const settingsMap: Record<string, AppSetting> = {};
         for (const row of settingsRes.data) {
           settingsMap[row.key] = row as AppSetting;
         }
         DataStore.hydrateSettings(settingsMap);
+      }
+
+      // 2b. Saved Swimming Places (prefer dedicated pool_venues table, fallback to app_settings.saved_venues)
+      const venueRows =
+        !venuesRes.error && Array.isArray(venuesRes.data) && venuesRes.data.length > 0
+          ? (venuesRes.data as PoolVenue[])
+          : null;
+      if (venueRows) {
+        DataStore.hydrateVenues(venueRows);
+      } else {
+        const settingsVenues = (
+          DataStore.getAppSettings()["saved_venues"]?.value as
+            | { venues?: PoolVenue[] }
+            | undefined
+        )?.venues;
+        if (Array.isArray(settingsVenues) && settingsVenues.length > 0) {
+          DataStore.hydrateVenues(settingsVenues);
+        } else {
+          // If coach previously configured a custom default_pool in general settings, preserve it as default venue
+          const general = DataStore.getAppSettings()["general"]?.value as
+            | Record<string, unknown>
+            | undefined;
+          if (
+            general &&
+            typeof general.default_pool === "string" &&
+            general.default_pool.trim() &&
+            typeof general.default_pool_latitude === "number" &&
+            typeof general.default_pool_longitude === "number"
+          ) {
+            DataStore.ensureVenueSaved({
+              name: general.default_pool,
+              latitude: general.default_pool_latitude,
+              longitude: general.default_pool_longitude,
+              radius_meters:
+                typeof general.default_pool_radius === "number"
+                  ? general.default_pool_radius
+                  : DEFAULT_GEOFENCE_RADIUS_METERS,
+              is_default: true,
+            });
+          }
+        }
       }
 
       // 3. Swim Sessions
@@ -615,13 +686,18 @@ export const SupabaseDB = {
         console.error("[SupabaseDB] Error upserting session base payload:", baseError);
       }
 
-      // 2. Non-fatally update geofence coordinates & clamped radius on swim_sessions
-      const clampedRadius =
-        session.geofence_radius != null
-          ? Math.min(250, Math.max(25, Math.round(Number(session.geofence_radius))))
-          : DEFAULT_GEOFENCE_RADIUS_METERS;
+      // 2. Non-fatally update geofence coordinates, venue_id & clamped radius on swim_sessions
+      const clampedRadius = clampGeofenceRadiusMeters(
+        session.geofence_radius,
+        DEFAULT_GEOFENCE_RADIUS_METERS
+      );
 
-      if (session.latitude != null || session.longitude != null || session.geofence_radius != null) {
+      if (
+        session.latitude != null ||
+        session.longitude != null ||
+        session.geofence_radius != null ||
+        session.venue_id !== undefined
+      ) {
         try {
           const geoPayload: Record<string, unknown> = {
             geofence_radius: clampedRadius,
@@ -630,8 +706,17 @@ export const SupabaseDB = {
           if (session.longitude != null) geoPayload.longitude = session.longitude;
 
           await supabase.from("swim_sessions").update(geoPayload).eq("id", session.id);
+
+          // Separately attempt venue_id in case pool_venues migration isn't applied yet
+          if (session.venue_id !== undefined) {
+            const validVenueId = isValidUuid(session.venue_id) ? session.venue_id : null;
+            await supabase
+              .from("swim_sessions")
+              .update({ venue_id: validVenueId })
+              .eq("id", session.id);
+          }
         } catch {
-          // Geofence columns may not be migrated yet in live DB — handled by app_settings fallback below
+          // Geofence/venue columns may not be migrated yet in live DB — handled by app_settings fallback below
         }
       }
 
@@ -642,6 +727,7 @@ export const SupabaseDB = {
           latitude: session.latitude,
           longitude: session.longitude,
           geofence_radius: clampedRadius,
+          venue_id: session.venue_id ?? null,
         });
         const allSettings = DataStore.getAppSettings();
         const geoSetting = allSettings["session_geofences"];
@@ -757,6 +843,73 @@ export const SupabaseDB = {
       }
     } catch (err) {
       console.error("[SupabaseDB] Error upserting app setting:", err);
+    }
+  },
+
+  /**
+   * Synchronizes all coach-saved swimming places into both `public.pool_venues` (if migrated)
+   * and `app_settings["saved_venues"]` + `app_settings["general"]` (zero-downtime fallback).
+   */
+  async syncVenues(venues: PoolVenue[], deletedId?: string): Promise<void> {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return;
+
+    const now = new Date().toISOString();
+
+    // 1. Always persist durable JSON snapshot in app_settings
+    await this.upsertAppSetting("saved_venues", { venues });
+
+    // Keep general.default_pool synchronized with the default venue
+    const defaultVenue = venues.find((v) => v.is_default) || venues[0];
+    if (defaultVenue) {
+      const generalVal = (DataStore.getAppSettings()["general"]?.value || {}) as Record<
+        string,
+        unknown
+      >;
+      await this.upsertAppSetting("general", {
+        ...generalVal,
+        default_pool: defaultVenue.name,
+        default_pool_latitude: defaultVenue.latitude,
+        default_pool_longitude: defaultVenue.longitude,
+        default_pool_radius: defaultVenue.radius_meters,
+      });
+    }
+
+    // 2. Non-fatally mirror into dedicated `public.pool_venues` relational table when migrated
+    try {
+      const isValidUuid = (val?: string | null) =>
+        typeof val === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+      if (deletedId && isValidUuid(deletedId)) {
+        await supabase.from("pool_venues").delete().eq("id", deletedId);
+      }
+
+      // Clear existing is_default flags first so the partial unique index never collides
+      await supabase
+        .from("pool_venues")
+        .update({ is_default: false, updated_at: now })
+        .eq("is_default", true);
+
+      const rows = venues
+        .filter((v) => isValidUuid(v.id))
+        .map((v) => ({
+          id: v.id,
+          name: v.name,
+          short_name: v.short_name,
+          latitude: v.latitude,
+          longitude: v.longitude,
+          radius_meters: clampGeofenceRadiusMeters(v.radius_meters),
+          is_default: Boolean(v.is_default),
+          notes: v.notes || null,
+          updated_at: now,
+        }));
+
+      if (rows.length > 0) {
+        await supabase.from("pool_venues").upsert(rows, { onConflict: "id" });
+      }
+    } catch {
+      // `pool_venues` migration not applied yet — app_settings fallback above guarantees persistence
     }
   },
 };

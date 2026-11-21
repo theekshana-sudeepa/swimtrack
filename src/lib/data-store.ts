@@ -9,6 +9,7 @@ import {
   ReminderDelivery,
   AppSetting,
   SquadMessage,
+  PoolVenue,
 } from "@/types/database";
 import {
   INITIAL_SWIMMERS,
@@ -25,8 +26,32 @@ import {
   calculateMinutesLate,
   isSessionUpcomingOrActive,
 } from "./attendance-calculator";
-import { DEFAULT_GEOFENCE_RADIUS_METERS, matchKnownVenueByName } from "./geo-fence";
+import {
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  DEFAULT_VENUE,
+  PRESET_VENUES,
+  calculateHaversineDistance,
+  clampGeofenceRadiusMeters,
+  deriveShortVenueName,
+  matchKnownVenueByName,
+} from "./geo-fence";
 import { generateSwimmerToken, isStrongSwimmerToken, timingSafeMatch } from "./security";
+
+function buildDefaultSeedVenues(): PoolVenue[] {
+  const now = new Date().toISOString();
+  return PRESET_VENUES.map((v, idx) => ({
+    id: `11111111-1111-4111-8111-${String(idx + 1).padStart(12, "0")}`,
+    name: v.name,
+    short_name: v.shortName,
+    latitude: v.latitude,
+    longitude: v.longitude,
+    radius_meters: clampGeofenceRadiusMeters(v.radiusMeters),
+    is_default: idx === 0,
+    notes: null,
+    created_at: now,
+    updated_at: now,
+  }));
+}
 
 /** Coach-configurable attendance rules (Settings -> General). */
 export interface AttendancePolicy {
@@ -49,6 +74,7 @@ interface StoreState {
   auditLogs: AttendanceAuditLog[];
   reminders: ReminderDelivery[];
   messages: SquadMessage[];
+  venues: PoolVenue[];
   settings: Record<string, AppSetting>;
 }
 
@@ -80,6 +106,7 @@ function getInitialStore(forceDemo = false): StoreState {
         is_admin: true,
       },
     ],
+    venues: buildDefaultSeedVenues(),
     settings: {
       general: {
         key: "general",
@@ -124,6 +151,7 @@ export const DataStore = {
     store.auditLogs = fresh.auditLogs;
     store.reminders = fresh.reminders;
     store.messages = fresh.messages;
+    store.venues = fresh.venues;
     store.settings = fresh.settings;
   },
 
@@ -210,6 +238,280 @@ export const DataStore = {
 
   hydrateSeries(series: SessionSeries[]): void {
     store.series = series;
+  },
+
+  hydrateVenues(venues: PoolVenue[]): void {
+    if (!Array.isArray(venues) || venues.length === 0) return;
+    const cleaned: PoolVenue[] = venues
+      .filter(
+        (v) =>
+          v &&
+          typeof v.name === "string" &&
+          v.name.trim().length > 0 &&
+          Number.isFinite(Number(v.latitude)) &&
+          Number.isFinite(Number(v.longitude))
+      )
+      .map((v) => ({
+        id: typeof v.id === "string" && v.id.trim() ? v.id.trim() : crypto.randomUUID(),
+        name: v.name.trim(),
+        short_name:
+          typeof v.short_name === "string" && v.short_name.trim()
+            ? v.short_name.trim()
+            : deriveShortVenueName(v.name),
+        latitude: Number(Number(v.latitude).toFixed(6)),
+        longitude: Number(Number(v.longitude).toFixed(6)),
+        radius_meters: clampGeofenceRadiusMeters(v.radius_meters),
+        is_default: Boolean(v.is_default),
+        notes: typeof v.notes === "string" && v.notes.trim() ? v.notes.trim() : null,
+        created_at: v.created_at,
+        updated_at: v.updated_at,
+      }));
+
+    if (cleaned.length === 0) return;
+
+    // Guarantee exactly one default venue
+    let foundDefault = false;
+    for (const v of cleaned) {
+      if (v.is_default && !foundDefault) {
+        foundDefault = true;
+      } else {
+        v.is_default = false;
+      }
+    }
+    if (!foundDefault) {
+      cleaned[0].is_default = true;
+    }
+
+    store.venues = cleaned;
+  },
+
+  // ---------------------------------------------------------------------------
+  // Saved Swimming Places (Pool Venues)
+  // ---------------------------------------------------------------------------
+  getSavedVenues(): PoolVenue[] {
+    if (!Array.isArray(store.venues) || store.venues.length === 0) {
+      store.venues = buildDefaultSeedVenues();
+    }
+    return [...store.venues].sort((a, b) => {
+      if (a.is_default !== b.is_default) return a.is_default ? -1 : 1;
+      return a.short_name.localeCompare(b.short_name);
+    });
+  },
+
+  getDefaultVenue(): PoolVenue {
+    const venues = this.getSavedVenues();
+    return (
+      venues.find((v) => v.is_default) ||
+      venues[0] || {
+        id: "11111111-1111-4111-8111-000000000001",
+        name: DEFAULT_VENUE.name,
+        short_name: DEFAULT_VENUE.shortName,
+        latitude: DEFAULT_VENUE.latitude,
+        longitude: DEFAULT_VENUE.longitude,
+        radius_meters: DEFAULT_VENUE.radiusMeters,
+        is_default: true,
+        notes: null,
+      }
+    );
+  },
+
+  getVenueById(id: string): PoolVenue | null {
+    return this.getSavedVenues().find((v) => v.id === id) || null;
+  },
+
+  syncVenuesToAppSettings(): void {
+    const now = new Date().toISOString();
+    store.settings["saved_venues"] = {
+      key: "saved_venues",
+      value: { venues: this.getSavedVenues() },
+      updated_at: now,
+    };
+    const def = this.getDefaultVenue();
+    const existingGeneral = (store.settings["general"]?.value || {}) as Record<string, unknown>;
+    store.settings["general"] = {
+      key: "general",
+      value: {
+        ...existingGeneral,
+        default_pool: def.name,
+        default_pool_latitude: def.latitude,
+        default_pool_longitude: def.longitude,
+        default_pool_radius: def.radius_meters,
+      },
+      updated_at: now,
+    };
+  },
+
+  createVenue(data: {
+    name: string;
+    short_name?: string | null;
+    latitude: number;
+    longitude: number;
+    radius_meters?: number | null;
+    is_default?: boolean;
+    notes?: string | null;
+  }): PoolVenue {
+    if (!Array.isArray(store.venues)) {
+      store.venues = buildDefaultSeedVenues();
+    }
+    const now = new Date().toISOString();
+    const makeDefault = Boolean(data.is_default) || store.venues.length === 0;
+    if (makeDefault) {
+      for (const v of store.venues) v.is_default = false;
+    }
+
+    const venue: PoolVenue = {
+      id: crypto.randomUUID(),
+      name: data.name.trim(),
+      short_name:
+        data.short_name && data.short_name.trim()
+          ? data.short_name.trim()
+          : deriveShortVenueName(data.name),
+      latitude: Math.max(-90, Math.min(90, Number(Number(data.latitude).toFixed(6)))),
+      longitude: Math.max(-180, Math.min(180, Number(Number(data.longitude).toFixed(6)))),
+      radius_meters: clampGeofenceRadiusMeters(data.radius_meters),
+      is_default: makeDefault,
+      notes: data.notes?.trim() || null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    store.venues.push(venue);
+    this.syncVenuesToAppSettings();
+    return venue;
+  },
+
+  updateVenue(
+    id: string,
+    data: {
+      name?: string;
+      short_name?: string | null;
+      latitude?: number;
+      longitude?: number;
+      radius_meters?: number | null;
+      is_default?: boolean;
+      notes?: string | null;
+    }
+  ): PoolVenue | null {
+    const idx = store.venues.findIndex((v) => v.id === id);
+    if (idx === -1) return null;
+
+    const current = store.venues[idx];
+    const nextName = data.name !== undefined && data.name.trim() ? data.name.trim() : current.name;
+    const nextShort =
+      data.short_name !== undefined
+        ? data.short_name && data.short_name.trim()
+          ? data.short_name.trim()
+          : deriveShortVenueName(nextName)
+        : current.short_name;
+
+    if (data.is_default) {
+      for (const v of store.venues) v.is_default = false;
+    }
+
+    const updated: PoolVenue = {
+      ...current,
+      name: nextName,
+      short_name: nextShort,
+      latitude:
+        data.latitude !== undefined && Number.isFinite(Number(data.latitude))
+          ? Math.max(-90, Math.min(90, Number(Number(data.latitude).toFixed(6))))
+          : current.latitude,
+      longitude:
+        data.longitude !== undefined && Number.isFinite(Number(data.longitude))
+          ? Math.max(-180, Math.min(180, Number(Number(data.longitude).toFixed(6))))
+          : current.longitude,
+      radius_meters:
+        data.radius_meters !== undefined
+          ? clampGeofenceRadiusMeters(data.radius_meters, current.radius_meters)
+          : current.radius_meters,
+      is_default: data.is_default !== undefined ? Boolean(data.is_default) : current.is_default,
+      notes: data.notes !== undefined ? data.notes?.trim() || null : current.notes ?? null,
+      updated_at: new Date().toISOString(),
+    };
+
+    store.venues[idx] = updated;
+
+    // Guarantee at least one default remains
+    if (!store.venues.some((v) => v.is_default) && store.venues.length > 0) {
+      store.venues[0].is_default = true;
+    }
+
+    this.syncVenuesToAppSettings();
+    return updated;
+  },
+
+  setDefaultVenue(id: string): PoolVenue | null {
+    const target = store.venues.find((v) => v.id === id);
+    if (!target) return null;
+    const now = new Date().toISOString();
+    for (const v of store.venues) {
+      v.is_default = v.id === id;
+      if (v.id === id) v.updated_at = now;
+    }
+    this.syncVenuesToAppSettings();
+    return target;
+  },
+
+  deleteVenue(id: string): { deleted: boolean; error?: string; newDefault?: PoolVenue | null } {
+    if (store.venues.length <= 1) {
+      return {
+        deleted: false,
+        error: "You must keep at least one swimming place configured.",
+      };
+    }
+    const idx = store.venues.findIndex((v) => v.id === id);
+    if (idx === -1) {
+      return { deleted: false, error: "Swimming place not found." };
+    }
+    const wasDefault = store.venues[idx].is_default;
+    store.venues.splice(idx, 1);
+
+    let newDefault: PoolVenue | null = null;
+    if (wasDefault && store.venues.length > 0) {
+      store.venues[0].is_default = true;
+      newDefault = store.venues[0];
+    }
+
+    this.syncVenuesToAppSettings();
+    return { deleted: true, newDefault };
+  },
+
+  ensureVenueSaved(data: {
+    name: string;
+    short_name?: string | null;
+    latitude: number;
+    longitude: number;
+    radius_meters?: number | null;
+    is_default?: boolean;
+    notes?: string | null;
+  }): PoolVenue {
+    const cleanName = data.name.trim().toLowerCase();
+    const existing = this.getSavedVenues().find((v) => {
+      if (v.name.trim().toLowerCase() === cleanName) return true;
+      const dist = calculateHaversineDistance(
+        v.latitude,
+        v.longitude,
+        data.latitude,
+        data.longitude
+      );
+      return dist <= 25 && v.name.trim().toLowerCase().includes(cleanName.slice(0, 8));
+    });
+
+    if (existing) {
+      return (
+        this.updateVenue(existing.id, {
+          name: data.name,
+          short_name: data.short_name ?? existing.short_name,
+          latitude: data.latitude,
+          longitude: data.longitude,
+          radius_meters: data.radius_meters ?? existing.radius_meters,
+          is_default: data.is_default ?? existing.is_default,
+          notes: data.notes !== undefined ? data.notes : existing.notes,
+        }) || existing
+      );
+    }
+
+    return this.createVenue(data);
   },
 
   // ---------------------------------------------------------------------------
@@ -496,19 +798,31 @@ export const DataStore = {
     location: string;
     notes?: string;
     series_id?: string | null;
+    venue_id?: string | null;
     latitude?: number | null;
     longitude?: number | null;
     geofence_radius?: number | null;
   }): SwimSession {
     const newId = crypto.randomUUID();
-    const matchedVenue = matchKnownVenueByName(data.location);
+    const savedVenues = this.getSavedVenues();
+    const matchedById = data.venue_id
+      ? savedVenues.find((v) => v.id === data.venue_id) || null
+      : null;
+    const matchedVenue = matchedById
+      ? {
+          name: matchedById.name,
+          latitude: matchedById.latitude,
+          longitude: matchedById.longitude,
+          radiusMeters: matchedById.radius_meters,
+        }
+      : matchKnownVenueByName(data.location, savedVenues);
     const resolvedLat =
       data.latitude != null ? data.latitude : matchedVenue ? matchedVenue.latitude : null;
     const resolvedLng =
       data.longitude != null ? data.longitude : matchedVenue ? matchedVenue.longitude : null;
     const resolvedRadius =
       data.geofence_radius != null
-        ? data.geofence_radius
+        ? clampGeofenceRadiusMeters(data.geofence_radius)
         : matchedVenue
         ? matchedVenue.radiusMeters
         : DEFAULT_GEOFENCE_RADIUS_METERS;
@@ -516,6 +830,7 @@ export const DataStore = {
     const newSession: SwimSession = {
       id: newId,
       series_id: data.series_id || null,
+      venue_id: data.venue_id || matchedById?.id || null,
       title: data.title,
       date: data.date,
       start_time: data.start_time,
@@ -539,6 +854,7 @@ export const DataStore = {
         latitude: resolvedLat,
         longitude: resolvedLng,
         geofence_radius: resolvedRadius,
+        venue_id: newSession.venue_id,
       });
     }
 
@@ -573,6 +889,7 @@ export const DataStore = {
         latitude: updated.latitude,
         longitude: updated.longitude,
         geofence_radius: updated.geofence_radius ?? DEFAULT_GEOFENCE_RADIUS_METERS,
+        venue_id: updated.venue_id ?? null,
       });
     }
 
@@ -586,6 +903,7 @@ export const DataStore = {
       latitude: number;
       longitude: number;
       geofence_radius: number;
+      venue_id?: string | null;
     }
   ): void {
     const existing =
@@ -605,6 +923,7 @@ export const DataStore = {
     latitude?: number;
     longitude?: number;
     geofence_radius?: number;
+    venue_id?: string | null;
   } | null {
     const map = store.settings["session_geofences"]?.value as
       | Record<
@@ -614,6 +933,7 @@ export const DataStore = {
             latitude?: number;
             longitude?: number;
             geofence_radius?: number;
+            venue_id?: string | null;
           }
         >
       | undefined;
@@ -693,6 +1013,7 @@ export const DataStore = {
     end_time: string;
     start_date: string;
     occurrences_to_generate?: number;
+    venue_id?: string | null;
     latitude?: number | null;
     longitude?: number | null;
     geofence_radius?: number | null;
@@ -702,6 +1023,10 @@ export const DataStore = {
       id: seriesId,
       title: data.title,
       location: data.location,
+      venue_id: data.venue_id || null,
+      latitude: data.latitude ?? null,
+      longitude: data.longitude ?? null,
+      geofence_radius: data.geofence_radius ?? null,
       recurrence_rule: data.recurrence_rule,
       day_of_week: data.day_of_week,
       start_time: data.start_time,
@@ -729,6 +1054,7 @@ export const DataStore = {
         if (!exists) {
           this.createSession({
             series_id: seriesId,
+            venue_id: data.venue_id,
             title: data.title,
             date: dateStr,
             start_time: data.start_time,
