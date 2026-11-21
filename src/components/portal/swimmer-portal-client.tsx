@@ -92,14 +92,15 @@ export function SwimmerPortalClient({
     () => rankedFriends.find((r) => r.swimmer.id === swimmer.id) || null,
     [rankedFriends, swimmer.id]
   );
+  const myStats = myRanking?.swimmer.attendance_stats ?? swimmer.attendance_stats;
   const myPoints = React.useMemo(
-    () => myRanking?.points ?? calculateSwimmerPoints(swimmer.attendance_stats),
-    [myRanking, swimmer.attendance_stats]
+    () => myRanking?.points ?? calculateSwimmerPoints(myStats),
+    [myRanking, myStats]
   );
   const [showPointsGuide, setShowPointsGuide] = React.useState(false);
 
   // Squad Persona Rank Calculation
-  const squadRank = myRanking?.squadRank ?? getSwimmerSquadRank(swimmer.attendance_stats);
+  const squadRank = myRanking?.squadRank ?? getSwimmerSquadRank(myStats);
 
   // Attendance & Excuse State for Next Practice
   const initialRecord = nextSession
@@ -309,14 +310,14 @@ export function SwimmerPortalClient({
                 Aqua Points {myRanking ? `(${myRanking.isTied ? `=${myRanking.rank}` : `#${myRanking.rank}`})` : ""}
               </div>
               <div className="text-[10px] text-aqua/90 mt-0.5 font-medium">
-                {myPoints.attendedCount}/{myPoints.sessionsCount} swims · {swimmer.attendance_stats?.rate || 0}%
+                {myPoints.attendedCount}/{myPoints.sessionsCount} swims · {myStats?.rate || 0}%
               </div>
             </div>
 
             <div className="p-3.5 rounded-2xl bg-secondary/40 border border-border/70">
               <div className="text-2xl font-black text-amber-400 flex items-center justify-center gap-1">
                 <Flame className="w-5 h-5 fill-amber-400" />
-                <span>{swimmer.attendance_stats?.currentStreak || 0}</span>
+                <span>{myStats?.currentStreak || 0}</span>
               </div>
               <div className="text-[11px] font-semibold text-muted-foreground mt-0.5">
                 Active Streak
@@ -325,7 +326,7 @@ export function SwimmerPortalClient({
 
             <div className="p-3.5 rounded-2xl bg-secondary/40 border border-border/70">
               <div className="text-2xl font-black text-seafoam">
-                {(swimmer.attendance_stats?.present || 0) + (swimmer.attendance_stats?.late || 0)}
+                {(myStats?.present || 0) + (myStats?.late || 0)}
               </div>
               <div className="text-[11px] font-semibold text-muted-foreground mt-0.5">
                 Practices Attended
@@ -334,14 +335,14 @@ export function SwimmerPortalClient({
 
             <div className="p-3.5 rounded-2xl bg-secondary/40 border border-border/70">
               <div className="text-2xl font-black text-coral">
-                {swimmer.attendance_stats?.absent || 0}
+                {myStats?.absent || 0}
               </div>
               <div className="text-[11px] font-semibold text-muted-foreground mt-0.5">
                 Missed (Polla)
               </div>
-              {(swimmer.attendance_stats?.excused || 0) > 0 && (
+              {(myStats?.excused || 0) > 0 && (
                 <div className="text-[10px] text-sky-400 mt-0.5 font-medium">
-                  +{swimmer.attendance_stats?.excused} excused
+                  +{myStats?.excused} excused
                 </div>
               )}
             </div>

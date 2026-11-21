@@ -1595,12 +1595,11 @@ export const DataStore = {
     const acceptable = isStrongSwimmerToken(cleanToken) || (demoMode && cleanToken.startsWith("token_"));
     if (!acceptable) return null;
 
-    return (
-      store.swimmers.find((s) => {
-        const stored = s.reminder_preferences?.opt_out_token;
-        return typeof stored === "string" && timingSafeMatch(stored, cleanToken);
-      }) || null
-    );
+    const matched = store.swimmers.find((s) => {
+      const stored = s.reminder_preferences?.opt_out_token;
+      return typeof stored === "string" && timingSafeMatch(stored, cleanToken);
+    });
+    return matched ? this.getSwimmerById(matched.id) : null;
   },
 
   /**

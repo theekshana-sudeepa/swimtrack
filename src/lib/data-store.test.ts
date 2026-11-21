@@ -354,10 +354,14 @@ describe("DataStore In-Memory Repository", () => {
       expect(DataStore.getSwimmerByToken(swimmer.id)).toBeNull();
       expect(DataStore.getSwimmerByToken(swimmer.email!)).toBeNull();
 
-      // Only the secret pass token resolves the swimmer
+      // Only the secret pass token resolves the swimmer (with computed attendance_stats attached!)
       const validToken = swimmer.reminder_preferences?.opt_out_token;
       expect(validToken).toBeTruthy();
-      expect(DataStore.getSwimmerByToken(validToken!)?.id).toBe(swimmer.id);
+      const resolved = DataStore.getSwimmerByToken(validToken!);
+      expect(resolved?.id).toBe(swimmer.id);
+      expect(resolved?.attendance_stats).toBeDefined();
+      expect(resolved?.attendance_stats?.rate).toBe(swimmer.attendance_stats?.rate);
+      expect(resolved?.attendance_stats?.currentStreak).toBe(swimmer.attendance_stats?.currentStreak);
     });
 
     it("rate limits brute-force PIN attempts after 5 failures", () => {
